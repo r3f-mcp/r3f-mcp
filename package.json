@@ -1,0 +1,15 @@
+{
+  "name": "r3f-mcp-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "pnpm --filter './packages/*' build",
+    "build:client": "pnpm --filter r3f-mcp build",
+    "build:server": "pnpm --filter r3f-mcp-server build",
+    "typecheck": "pnpm --filter './packages/*' typecheck",
+    "example": "pnpm --filter r3f-mcp-basic dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
