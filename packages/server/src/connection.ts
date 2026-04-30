@@ -7,6 +7,10 @@ import type {
   ClientToServerMessage,
   SetTransformMessage,
   SetMaterialMessage,
+  AddObjectPayload,
+  BoundsResult,
+  DistanceResult,
+  FrustumResult,
 } from './types.js';
 
 // ─── Public input types (message payloads minus the id field) ─────────────────
@@ -112,8 +116,19 @@ export class WebSocketManager {
    */
   private readonly pending = new Map<string, PendingRequest>();
 
+  /** Snapshot stored by scene_graph and scene_diff tools for diffing. */
+  private lastSnapshot: { scene: SerializedNode; timestamp: string } | null = null;
+
   constructor(options: WebSocketManagerOptions) {
     this.port = options.port;
+  }
+
+  storeSnapshot(scene: SerializedNode): void {
+    this.lastSnapshot = { scene, timestamp: new Date().toISOString() };
+  }
+
+  getLastSnapshot(): { scene: SerializedNode; timestamp: string } | null {
+    return this.lastSnapshot;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────────
@@ -397,6 +412,71 @@ export class WebSocketManager {
       throw new Error(`Protocol error: expected screenshot_response, got ${resp.type}`);
     }
     return resp.payload.image;
+  }
+
+  /** Create a new object in the scene. Returns the UUID and name of the created object. */
+  async requestAddObject(payload: AddObjectPayload): Promise<{ uuid: string; name: string }> {
+    const resp = await this.sendRequest({
+      type: 'add_object',
+      requestId: randomUUID(),
+      payload,
+    });
+    if (resp.type !== 'add_object_response') {
+      throw new Error(`Protocol error: expected add_object_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** Remove an object (and its children) from the scene by UUID or name. */
+  async requestRemoveObject(identifier: string): Promise<{ uuid: string; name: string }> {
+    const resp = await this.sendRequest({
+      type: 'remove_object',
+      requestId: randomUUID(),
+      payload: { id: identifier },
+    });
+    if (resp.type !== 'remove_object_response') {
+      throw new Error(`Protocol error: expected remove_object_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** Get the world-space axis-aligned bounding box of an object. */
+  async requestQueryBounds(identifier: string): Promise<BoundsResult> {
+    const resp = await this.sendRequest({
+      type: 'query_bounds',
+      requestId: randomUUID(),
+      payload: { id: identifier },
+    });
+    if (resp.type !== 'query_bounds_response') {
+      throw new Error(`Protocol error: expected query_bounds_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** Measure world-space distance between two objects. */
+  async requestQueryDistance(fromId: string, toId: string): Promise<DistanceResult> {
+    const resp = await this.sendRequest({
+      type: 'query_distance',
+      requestId: randomUUID(),
+      payload: { fromId, toId },
+    });
+    if (resp.type !== 'query_distance_response') {
+      throw new Error(`Protocol error: expected query_distance_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** List all objects visible in the camera frustum. */
+  async requestQueryFrustum(cameraId?: string): Promise<FrustumResult> {
+    const resp = await this.sendRequest({
+      type: 'query_frustum',
+      requestId: randomUUID(),
+      payload: { cameraId },
+    });
+    if (resp.type !== 'query_frustum_response') {
+      throw new Error(`Protocol error: expected query_frustum_response, got ${resp.type}`);
+    }
+    return resp.payload;
   }
 }
 

@@ -98,6 +98,77 @@ export interface SerializedNode {
   camera?: SerializedCamera;
 }
 
+// ─── Add-object spec ─────────────────────────────────────────────────────────
+
+export interface AddObjectGeometrySpec {
+  type:
+    | 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane'
+    | 'torusKnot' | 'icosahedron' | 'octahedron' | 'ring' | 'dodecahedron';
+  /** Geometry constructor arguments, e.g. [1, 1, 1] for box w/h/d */
+  args?: number[];
+}
+
+export interface AddObjectMaterialSpec {
+  type?: 'standard' | 'basic' | 'phong' | 'lambert' | 'physical';
+  color?: string;
+  opacity?: number;
+  transparent?: boolean;
+  metalness?: number;
+  roughness?: number;
+  wireframe?: boolean;
+  side?: 'front' | 'back' | 'double';
+}
+
+export interface AddObjectPayload {
+  name: string;
+  type: 'mesh' | 'group' | 'directionalLight' | 'pointLight' | 'spotLight' | 'ambientLight';
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  scale?: [number, number, number];
+  /** Name or UUID of parent object; defaults to scene root */
+  parent?: string;
+  // Mesh-only
+  geometry?: AddObjectGeometrySpec;
+  material?: AddObjectMaterialSpec;
+  // Light-only
+  color?: string;
+  intensity?: number;
+  distance?: number;
+  angle?: number;
+  penumbra?: number;
+  castShadow?: boolean;
+}
+
+// ─── Spatial query result types ───────────────────────────────────────────────
+
+export interface BoundsResult {
+  min:    [number, number, number];
+  max:    [number, number, number];
+  center: [number, number, number];
+  size:   [number, number, number];
+}
+
+export interface DistanceResult {
+  distance:     number;
+  fromPosition: [number, number, number];
+  toPosition:   [number, number, number];
+  /** Unit vector pointing from `from` toward `to` */
+  vector:       [number, number, number];
+}
+
+export interface FrustumVisibleObject {
+  name:          string;
+  uuid:          string;
+  type:          string;
+  worldPosition: [number, number, number];
+}
+
+export interface FrustumResult {
+  visibleObjects: FrustumVisibleObject[];
+  totalObjects:   number;
+  visibleCount:   number;
+}
+
 // ─── WebSocket protocol ───────────────────────────────────────────────────────
 //
 // Every message carries a requestId so the other side can correlate
@@ -170,13 +241,48 @@ export interface TakeScreenshotMessage {
   };
 }
 
+export interface AddObjectMessage {
+  type: 'add_object';
+  requestId: string;
+  payload: AddObjectPayload;
+}
+
+export interface RemoveObjectMessage {
+  type: 'remove_object';
+  requestId: string;
+  payload: { id: string };
+}
+
+export interface QueryBoundsMessage {
+  type: 'query_bounds';
+  requestId: string;
+  payload: { id: string };
+}
+
+export interface QueryDistanceMessage {
+  type: 'query_distance';
+  requestId: string;
+  payload: { fromId: string; toId: string };
+}
+
+export interface QueryFrustumMessage {
+  type: 'query_frustum';
+  requestId: string;
+  payload: { cameraId?: string };
+}
+
 export type ServerToClientMessage =
   | GetSceneGraphMessage
   | GetObjectMessage
   | SetTransformMessage
   | SetMaterialMessage
   | SetVisibleMessage
-  | TakeScreenshotMessage;
+  | TakeScreenshotMessage
+  | AddObjectMessage
+  | RemoveObjectMessage
+  | QueryBoundsMessage
+  | QueryDistanceMessage
+  | QueryFrustumMessage;
 
 // Client → Server ─────────────────────────────────────────────────────────────
 
@@ -231,12 +337,47 @@ export interface ErrorMessage {
   };
 }
 
+export interface AddObjectResponseMessage {
+  type: 'add_object_response';
+  requestId: string;
+  payload: { uuid: string; name: string };
+}
+
+export interface RemoveObjectResponseMessage {
+  type: 'remove_object_response';
+  requestId: string;
+  payload: { uuid: string; name: string };
+}
+
+export interface QueryBoundsResponseMessage {
+  type: 'query_bounds_response';
+  requestId: string;
+  payload: BoundsResult;
+}
+
+export interface QueryDistanceResponseMessage {
+  type: 'query_distance_response';
+  requestId: string;
+  payload: DistanceResult;
+}
+
+export interface QueryFrustumResponseMessage {
+  type: 'query_frustum_response';
+  requestId: string;
+  payload: FrustumResult;
+}
+
 export type ClientToServerMessage =
   | SceneGraphResponseMessage
   | ObjectResponseMessage
   | ScreenshotResponseMessage
   | EditConfirmationMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | AddObjectResponseMessage
+  | RemoveObjectResponseMessage
+  | QueryBoundsResponseMessage
+  | QueryDistanceResponseMessage
+  | QueryFrustumResponseMessage;
 
 export type AnyMessage = ServerToClientMessage | ClientToServerMessage;
 
@@ -290,7 +431,8 @@ export interface MCPProviderProps {
    */
   exclude?: string[];
   /**
-   * JPEG quality for screenshots, 0–1. Default: 0.8
+   * Reserved for a future JPEG-format option. Screenshots are currently always
+   * saved as lossless PNG so this value has no effect.
    * Tip: set <Canvas gl={{ preserveDrawingBuffer: true }}> for reliable captures.
    */
   screenshotQuality?: number;

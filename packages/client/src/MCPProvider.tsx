@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
+import { Box3, Vector3, Frustum, Matrix4 } from 'three';
 import type { Object3D, Mesh } from 'three';
 import type { MCPProviderProps, SerializedNode } from './types';
 import { SceneBridge } from './WebSocketServer';
@@ -11,6 +12,8 @@ import {
   findObject,
   applyTransform,
   applyMaterial,
+  createObject,
+  destroyObject,
 } from './SceneSerializer';
 
 // ─── Filtering helpers ────────────────────────────────────────────────────────
@@ -301,7 +304,7 @@ export function MCPProvider({
           dataUrl = canvas.toDataURL('image/png');
         }
 
-        // Strip the data-URL prefix ("data:image/jpeg;base64,") → raw base64
+        // Strip the data-URL prefix ("data:image/png;base64,") → raw base64
         const base64 = dataUrl.split(',')[1] ?? '';
 
         bridge.send({
@@ -311,6 +314,195 @@ export function MCPProvider({
             image:  base64,
             width:  reqW ?? canvas.width,
             height: reqH ?? canvas.height,
+          },
+        });
+      })
+
+      // ── Add object ───────────────────────────────────────────────────────────
+      .onAddObject(msg => {
+        if (guardReadOnly(msg.requestId)) return;
+
+        const parent = msg.payload.parent
+          ? (findObject(scene, msg.payload.parent) ?? scene)
+          : scene;
+
+        let created: Object3D;
+        try {
+          created = createObject(msg.payload, parent);
+        } catch (err) {
+          bridge.send({
+            type: 'error',
+            requestId: msg.requestId,
+            payload: { message: err instanceof Error ? err.message : String(err), code: 'CREATE_FAILED' },
+          });
+          return;
+        }
+
+        invalidate();
+        onEditRef.current?.({ type: 'add_object', target: created.uuid, properties: msg.payload as unknown as Record<string, unknown> });
+
+        bridge.send({
+          type: 'add_object_response',
+          requestId: msg.requestId,
+          payload: { uuid: created.uuid, name: created.name },
+        });
+      })
+
+      // ── Remove object ────────────────────────────────────────────────────────
+      .onRemoveObject(msg => {
+        if (guardReadOnly(msg.requestId)) return;
+
+        const obj = resolve(msg.payload.id, msg.requestId);
+        if (!obj) return;
+
+        const { uuid, name } = obj;
+        const removed = destroyObject(obj);
+        if (!removed) {
+          bridge.send({
+            type: 'error',
+            requestId: msg.requestId,
+            payload: { message: `Cannot remove protected object "${name}"`, code: 'PROTECTED' },
+          });
+          return;
+        }
+
+        invalidate();
+        onEditRef.current?.({ type: 'remove_object', target: uuid, properties: { name } });
+
+        bridge.send({
+          type: 'remove_object_response',
+          requestId: msg.requestId,
+          payload: { uuid, name },
+        });
+      })
+
+      // ── Query bounds ─────────────────────────────────────────────────────────
+      .onQueryBounds(msg => {
+        const obj = resolve(msg.payload.id, msg.requestId);
+        if (!obj) return;
+
+        const box = new Box3().setFromObject(obj);
+        if (box.isEmpty()) {
+          bridge.send({
+            type: 'error',
+            requestId: msg.requestId,
+            payload: { message: `"${obj.name}" has no geometry for bounds computation`, code: 'EMPTY_BOUNDS' },
+          });
+          return;
+        }
+
+        const center = new Vector3();
+        const size   = new Vector3();
+        box.getCenter(center);
+        box.getSize(size);
+
+        bridge.send({
+          type: 'query_bounds_response',
+          requestId: msg.requestId,
+          payload: {
+            min:    box.min.toArray() as [number, number, number],
+            max:    box.max.toArray() as [number, number, number],
+            center: center.toArray() as [number, number, number],
+            size:   size.toArray()   as [number, number, number],
+          },
+        });
+      })
+
+      // ── Query distance ───────────────────────────────────────────────────────
+      .onQueryDistance(msg => {
+        const fromObj = findObject(scene, msg.payload.fromId);
+        const toObj   = findObject(scene, msg.payload.toId);
+
+        if (!fromObj) {
+          bridge.send({ type: 'error', requestId: msg.requestId,
+            payload: { message: `Object not found: "${msg.payload.fromId}"`, code: 'OBJECT_NOT_FOUND' } });
+          return;
+        }
+        if (!toObj) {
+          bridge.send({ type: 'error', requestId: msg.requestId,
+            payload: { message: `Object not found: "${msg.payload.toId}"`, code: 'OBJECT_NOT_FOUND' } });
+          return;
+        }
+
+        const fromPos = new Vector3();
+        const toPos   = new Vector3();
+        fromObj.getWorldPosition(fromPos);
+        toObj.getWorldPosition(toPos);
+
+        const diff     = toPos.clone().sub(fromPos);
+        const distance = diff.length();
+        const vector   = distance > 0
+          ? diff.clone().divideScalar(distance).toArray() as [number, number, number]
+          : [0, 0, 0] as [number, number, number];
+
+        bridge.send({
+          type: 'query_distance_response',
+          requestId: msg.requestId,
+          payload: {
+            distance,
+            fromPosition: fromPos.toArray() as [number, number, number],
+            toPosition:   toPos.toArray()   as [number, number, number],
+            vector,
+          },
+        });
+      })
+
+      // ── Query frustum ────────────────────────────────────────────────────────
+      .onQueryFrustum(msg => {
+        // Determine which camera to use.
+        let cam = camera;
+        if (msg.payload.cameraId) {
+          const found = findObject(scene, msg.payload.cameraId);
+          if (!found) {
+            bridge.send({ type: 'error', requestId: msg.requestId,
+              payload: { message: `Camera not found: "${msg.payload.cameraId}"`, code: 'OBJECT_NOT_FOUND' } });
+            return;
+          }
+          const isCamera = (found as unknown as Record<string, unknown>)['isCamera'] === true;
+          if (!isCamera) {
+            bridge.send({ type: 'error', requestId: msg.requestId,
+              payload: { message: `"${msg.payload.cameraId}" is not a camera`, code: 'NOT_A_CAMERA' } });
+            return;
+          }
+          cam = found as typeof camera;
+        }
+
+        // Build world-space frustum from the camera's projection matrix.
+        cam.updateWorldMatrix(true, false);
+        const projScreen = new Matrix4().multiplyMatrices(
+          cam.projectionMatrix,
+          cam.matrixWorldInverse,
+        );
+        const frustum = new Frustum().setFromProjectionMatrix(projScreen);
+
+        const visibleObjects: Array<{ name: string; uuid: string; type: string; worldPosition: [number, number, number] }> = [];
+        let totalObjects = 0;
+
+        scene.traverse(obj => {
+          if (obj === scene) return; // skip Scene root
+          totalObjects++;
+          if (!obj.visible) return;
+          try {
+            if (!frustum.intersectsObject(obj)) return;
+          } catch { return; }
+
+          const wp = new Vector3();
+          obj.getWorldPosition(wp);
+          visibleObjects.push({
+            name:          obj.name || `${obj.type}_${obj.uuid}`,
+            uuid:          obj.uuid,
+            type:          obj.type,
+            worldPosition: wp.toArray() as [number, number, number],
+          });
+        });
+
+        bridge.send({
+          type: 'query_frustum_response',
+          requestId: msg.requestId,
+          payload: {
+            visibleObjects,
+            totalObjects,
+            visibleCount: visibleObjects.length,
           },
         });
       })

@@ -8,36 +8,18 @@ import {
 
 import { WebSocketManager } from './connection.js';
 
-import {
-  sceneGraphTool,
-  sceneGraphSchema,
-  handleSceneGraph,
-} from './tools/sceneGraph.js';
-import {
-  getObjectTool,
-  getObjectSchema,
-  handleGetObject,
-} from './tools/getObject.js';
-import {
-  setTransformTool,
-  setTransformSchema,
-  handleSetTransform,
-} from './tools/setTransform.js';
-import {
-  setMaterialTool,
-  setMaterialSchema,
-  handleSetMaterial,
-} from './tools/setMaterial.js';
-import {
-  setVisibleTool,
-  setVisibleSchema,
-  handleSetVisible,
-} from './tools/setVisible.js';
-import {
-  screenshotTool,
-  screenshotSchema,
-  handleScreenshot,
-} from './tools/screenshot.js';
+import { sceneGraphTool,  sceneGraphSchema,  handleSceneGraph  } from './tools/sceneGraph.js';
+import { getObjectTool,   getObjectSchema,   handleGetObject   } from './tools/getObject.js';
+import { setTransformTool,setTransformSchema,handleSetTransform} from './tools/setTransform.js';
+import { setMaterialTool, setMaterialSchema, handleSetMaterial } from './tools/setMaterial.js';
+import { setVisibleTool,  setVisibleSchema,  handleSetVisible  } from './tools/setVisible.js';
+import { screenshotTool,  screenshotSchema,  handleScreenshot  } from './tools/screenshot.js';
+import { addObjectTool,   addObjectSchema,   handleAddObject   } from './tools/addObject.js';
+import { removeObjectTool,removeObjectSchema,handleRemoveObject} from './tools/removeObject.js';
+import { queryBoundsTool, queryBoundsSchema, handleQueryBounds } from './tools/queryBounds.js';
+import { queryDistanceTool,queryDistanceSchema,handleQueryDistance } from './tools/queryDistance.js';
+import { queryFrustumTool, queryFrustumSchema,handleQueryFrustum  } from './tools/queryFrustum.js';
+import { sceneDiffTool,   sceneDiffSchema,   handleSceneDiff   } from './tools/sceneDiff.js';
 
 // ─── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -55,12 +37,22 @@ function getPort(): number {
 // ─── Tool manifest ────────────────────────────────────────────────────────────
 
 const ALL_TOOLS = [
+  // v0.1 — read / inspect / mutate / capture
   sceneGraphTool,
   getObjectTool,
   setTransformTool,
   setMaterialTool,
   setVisibleTool,
   screenshotTool,
+  // v0.2 — add / remove
+  addObjectTool,
+  removeObjectTool,
+  // v0.2 — spatial queries
+  queryBoundsTool,
+  queryDistanceTool,
+  queryFrustumTool,
+  // v0.2 — scene diffing
+  sceneDiffTool,
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -68,29 +60,22 @@ const ALL_TOOLS = [
 async function main(): Promise<void> {
   const port = getPort();
 
-  // ── WebSocket bridge (browser ↔ server) ─────────────────────────────────────
   const manager = new WebSocketManager({ port });
 
-  // ── MCP server (Claude / Cursor ↔ server via stdio) ─────────────────────────
   const mcpServer = new Server(
-    {
-      name:    'r3f-mcp',
-      version: '0.1.0',
-    },
+    { name: 'r3f-mcp', version: '0.2.0' },
     {
       capabilities: { tools: {} },
       instructions:
         'This server connects AI tools to a running React Three Fiber scene. ' +
         'Before calling any tool, make sure the browser app with <MCPProvider> is running ' +
         `and connected to ws://localhost:${port}. ` +
-        'Start with the scene_graph tool to understand the scene structure.',
+        'Start with scene_graph to understand the structure, then use spatial queries or mutations.',
     },
   );
 
   // ── List tools ───────────────────────────────────────────────────────────────
-  mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: ALL_TOOLS,
-  }));
+  mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: ALL_TOOLS }));
 
   // ── Dispatch tool calls ───────────────────────────────────────────────────────
   mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -98,102 +83,108 @@ async function main(): Promise<void> {
 
     try {
       switch (name) {
-        // ── scene_graph ───────────────────────────────────────────────────────
+
+        // ── v0.1 ─────────────────────────────────────────────────────────────
+
         case 'scene_graph': {
           const args = sceneGraphSchema.parse(rawArgs);
           const result = await handleSceneGraph(args, manager);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
         }
 
-        // ── get_object ────────────────────────────────────────────────────────
         case 'get_object': {
           const args = getObjectSchema.parse(rawArgs);
           const result = await handleGetObject(args, manager);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
         }
 
-        // ── set_transform ─────────────────────────────────────────────────────
         case 'set_transform': {
           const args = setTransformSchema.parse(rawArgs);
           const success = await handleSetTransform(args, manager);
-          return {
-            content: [{
-              type: 'text',
-              text: success
-                ? `Transform applied to "${args.identifier}"`
-                : `Failed to apply transform to "${args.identifier}"`,
-            }],
-          };
+          return { content: [{ type: 'text', text: success
+            ? `Transform applied to "${args.identifier}"`
+            : `Failed to apply transform to "${args.identifier}"` }] };
         }
 
-        // ── set_material ──────────────────────────────────────────────────────
         case 'set_material': {
           const args = setMaterialSchema.parse(rawArgs);
           const success = await handleSetMaterial(args, manager);
-          return {
-            content: [{
-              type: 'text',
-              text: success
-                ? `Material updated on "${args.identifier}"`
-                : `Failed to update material on "${args.identifier}"`,
-            }],
-          };
+          return { content: [{ type: 'text', text: success
+            ? `Material updated on "${args.identifier}"`
+            : `Failed to update material on "${args.identifier}"` }] };
         }
 
-        // ── set_visible ───────────────────────────────────────────────────────
         case 'set_visible': {
           const args = setVisibleSchema.parse(rawArgs);
           const success = await handleSetVisible(args, manager);
-          return {
-            content: [{
-              type: 'text',
-              text: success
-                ? `"${args.identifier}" is now ${args.visible ? 'visible' : 'hidden'}`
-                : `Failed to change visibility of "${args.identifier}"`,
-            }],
-          };
+          return { content: [{ type: 'text', text: success
+            ? `"${args.identifier}" is now ${args.visible ? 'visible' : 'hidden'}`
+            : `Failed to change visibility of "${args.identifier}"` }] };
         }
 
-        // ── screenshot ────────────────────────────────────────────────────────
         case 'screenshot': {
           const args = screenshotSchema.parse(rawArgs);
-          // handleScreenshot returns the MCP image content block directly.
           return await handleScreenshot(args, manager);
         }
 
+        // ── v0.2: add / remove ───────────────────────────────────────────────
+
+        case 'add_object': {
+          const args = addObjectSchema.parse(rawArgs);
+          const result = await handleAddObject(args, manager);
+          return { content: [{ type: 'text',
+            text: `Created ${args.type} "${result.name}" — UUID: ${result.uuid}` }] };
+        }
+
+        case 'remove_object': {
+          const args = removeObjectSchema.parse(rawArgs);
+          const result = await handleRemoveObject(args, manager);
+          return { content: [{ type: 'text',
+            text: `Removed "${result.name}" (UUID: ${result.uuid})` }] };
+        }
+
+        // ── v0.2: spatial queries ─────────────────────────────────────────────
+
+        case 'query_bounds': {
+          const args = queryBoundsSchema.parse(rawArgs);
+          const result = await handleQueryBounds(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        case 'query_distance': {
+          const args = queryDistanceSchema.parse(rawArgs);
+          const result = await handleQueryDistance(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        case 'query_frustum': {
+          const args = queryFrustumSchema.parse(rawArgs);
+          const result = await handleQueryFrustum(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        // ── v0.2: scene diffing ───────────────────────────────────────────────
+
+        case 'scene_diff': {
+          const args = sceneDiffSchema.parse(rawArgs);
+          return await handleSceneDiff(args, manager);
+        }
+
         default:
-          return {
-            isError: true,
-            content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-          };
+          return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
       }
     } catch (err) {
-      // All errors — validation failures, timeouts, not-found — surface as
-      // readable MCP error responses so the AI can adapt.
       const message = err instanceof Error ? err.message : String(err);
-      return {
-        isError: true,
-        content: [{ type: 'text', text: message }],
-      };
+      return { isError: true, content: [{ type: 'text', text: message }] };
     }
   });
 
-  // ── Boot sequence ─────────────────────────────────────────────────────────
+  // ── Boot ──────────────────────────────────────────────────────────────────────
   await manager.listen();
-
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
 
-  // ── Graceful shutdown ────────────────────────────────────────────────────
-  const shutdown = async () => {
-    await manager.close();
-    process.exit(0);
-  };
-
+  const shutdown = async () => { await manager.close(); process.exit(0); };
   process.once('SIGINT',  () => { void shutdown(); });
   process.once('SIGTERM', () => { void shutdown(); });
 }

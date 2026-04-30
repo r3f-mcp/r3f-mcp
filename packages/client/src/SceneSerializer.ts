@@ -13,12 +13,31 @@ import type {
   BufferGeometry,
   Color,
 } from 'three';
+
+// Value imports — constructors used in createObject / createGeometry / createMaterial.
+// Three.js is a peer dep and is always present in the host app's bundle.
+import {
+  Group,
+  Mesh         as MeshCtor,
+  DirectionalLight,
+  PointLight   as PointLightCtor,
+  SpotLight    as SpotLightCtor,
+  AmbientLight,
+  BoxGeometry, SphereGeometry, CylinderGeometry, ConeGeometry,
+  TorusGeometry, PlaneGeometry, TorusKnotGeometry, IcosahedronGeometry,
+  OctahedronGeometry, RingGeometry, DodecahedronGeometry,
+  MeshStandardMaterial, MeshBasicMaterial, MeshPhongMaterial,
+  MeshLambertMaterial, MeshPhysicalMaterial,
+  FrontSide, BackSide, DoubleSide,
+} from 'three';
+
 import type {
   SerializedNode,
   SerializedGeometry,
   SerializedMaterial,
   SerializedLight,
   MaterialSide,
+  AddObjectPayload,
 } from './types';
 
 // ─── Internal augmented types ─────────────────────────────────────────────────
@@ -297,5 +316,176 @@ export function applyMaterial(
     // Signal Three.js to recompile the shader if structural properties changed
     // (e.g. transparent toggled, new map assigned).
     mat.needsUpdate = true;
+  }
+}
+
+// ─── Imperative object creation ───────────────────────────────────────────────
+
+/**
+ * Create a Three.js object from an `AddObjectPayload` spec, attach it to the
+ * given parent (or scene root), and return it.
+ *
+ * This bypasses React's reconciler — call `invalidate()` afterward and fire the
+ * `onEdit` callback so the host app can optionally sync its own state.
+ */
+export function createObject(
+  payload: AddObjectPayload,
+  parent: Object3D,
+): Object3D {
+  const {
+    name,
+    type,
+    position = [0, 0, 0],
+    rotation = [0, 0, 0],
+    scale    = [1, 1, 1],
+    geometry: geoSpec,
+    material: matSpec,
+    color,
+    intensity,
+    distance,
+    angle,
+    penumbra,
+    castShadow,
+  } = payload;
+
+  let object: Object3D;
+
+  switch (type) {
+    case 'mesh': {
+      const geo = buildGeometry(geoSpec);
+      const mat = buildMaterial(matSpec);
+      object = new MeshCtor(geo, mat);
+      break;
+    }
+    case 'group':
+      object = new Group();
+      break;
+    case 'directionalLight': {
+      const dl = new DirectionalLight(color ?? '#ffffff', intensity ?? 1);
+      if (castShadow !== undefined) dl.castShadow = castShadow;
+      object = dl;
+      break;
+    }
+    case 'pointLight': {
+      const pl = new PointLightCtor(color ?? '#ffffff', intensity ?? 1, distance);
+      if (castShadow !== undefined) pl.castShadow = castShadow;
+      object = pl;
+      break;
+    }
+    case 'spotLight': {
+      const sl = new SpotLightCtor(color ?? '#ffffff', intensity ?? 1, distance);
+      if (angle    !== undefined) sl.angle    = angle;
+      if (penumbra !== undefined) sl.penumbra = penumbra;
+      if (castShadow !== undefined) sl.castShadow = castShadow;
+      object = sl;
+      break;
+    }
+    case 'ambientLight':
+      object = new AmbientLight(color ?? '#ffffff', intensity ?? 1);
+      break;
+    default: {
+      const _: never = type;
+      throw new Error(`Unknown object type: ${_}`);
+    }
+  }
+
+  object.name = name;
+  object.position.set(...position);
+  object.rotation.set(...rotation);
+  object.scale.set(...scale);
+
+  parent.add(object);
+  return object;
+}
+
+function buildGeometry(spec: AddObjectPayload['geometry']): BufferGeometry {
+  if (!spec) return new BoxGeometry(1, 1, 1);
+  const a = spec.args ?? [];
+  // Destructure with undefined fallbacks — Three.js constructors accept optional numbers.
+  const [a0, a1, a2, a3, a4, a5] = a;
+  switch (spec.type) {
+    case 'box':        return new BoxGeometry(a0, a1, a2, a3, a4, a5);
+    case 'sphere':     return new SphereGeometry(a0, a1, a2);
+    case 'cylinder':   return new CylinderGeometry(a0, a1, a2, a3);
+    case 'cone':       return new ConeGeometry(a0, a1, a2, a3);
+    case 'torus':      return new TorusGeometry(a0, a1, a2, a3);
+    case 'plane':      return new PlaneGeometry(a0, a1, a2, a3);
+    case 'torusKnot':  return new TorusKnotGeometry(a0, a1, a2, a3, a4, a5);
+    case 'icosahedron':  return new IcosahedronGeometry(a0, a1);
+    case 'octahedron':   return new OctahedronGeometry(a0, a1);
+    case 'ring':         return new RingGeometry(a0, a1, a2, a3);
+    case 'dodecahedron': return new DodecahedronGeometry(a0, a1);
+    default: {
+      const _: never = spec.type;
+      return new BoxGeometry(1, 1, 1); // unreachable
+      void _;
+    }
+  }
+}
+
+function buildMaterial(spec: AddObjectPayload['material']): Material {
+  const matType = spec?.type ?? 'standard';
+  let mat: Material;
+  switch (matType) {
+    case 'basic':    mat = new MeshBasicMaterial(); break;
+    case 'phong':    mat = new MeshPhongMaterial(); break;
+    case 'lambert':  mat = new MeshLambertMaterial(); break;
+    case 'physical': mat = new MeshPhysicalMaterial(); break;
+    default:         mat = new MeshStandardMaterial(); break;
+  }
+  if (!spec) return mat;
+
+  const m = mat as RichMaterial;
+  if (spec.color       && m.color)    m.color.set(spec.color);
+  if (spec.opacity     !== undefined) mat.opacity     = spec.opacity;
+  if (spec.transparent !== undefined) mat.transparent = spec.transparent;
+  if (spec.metalness   !== undefined) m.metalness     = spec.metalness;
+  if (spec.roughness   !== undefined) m.roughness     = spec.roughness;
+  if (spec.wireframe   !== undefined) m.wireframe     = spec.wireframe;
+  if (spec.side === 'back')   mat.side = BackSide;
+  else if (spec.side === 'double') mat.side = DoubleSide;
+  else if (spec.side === 'front')  mat.side = FrontSide;
+
+  return mat;
+}
+
+/**
+ * Recursively dispose a Three.js object's geometry and materials, then remove
+ * it from its parent. Returns false if the object is protected (scene root or
+ * a camera), true on success.
+ */
+export function destroyObject(object: Object3D): boolean {
+  const isScene  = object.type === 'Scene';
+  const isCamera = (object as unknown as Record<string, unknown>)['isCamera'] === true;
+  if (isScene || isCamera) return false;
+
+  // Dispose depth-first so children are cleaned up before the parent.
+  for (const child of [...object.children]) {
+    destroyObjectRecursive(child);
+  }
+  disposeResources(object);
+  object.parent?.remove(object);
+  return true;
+}
+
+function destroyObjectRecursive(object: Object3D): void {
+  for (const child of [...object.children]) {
+    destroyObjectRecursive(child);
+  }
+  disposeResources(object);
+}
+
+function disposeResources(object: Object3D): void {
+  const obj = object as unknown as Record<string, unknown>;
+  const geo = obj['geometry'];
+  if (geo && typeof (geo as { dispose?: () => void }).dispose === 'function') {
+    (geo as { dispose: () => void }).dispose();
+  }
+  const mat = obj['material'];
+  if (mat) {
+    const mats = Array.isArray(mat) ? mat : [mat];
+    for (const m of mats as Array<{ dispose?: () => void }>) {
+      if (typeof m.dispose === 'function') m.dispose();
+    }
   }
 }

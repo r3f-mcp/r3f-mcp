@@ -2,7 +2,7 @@
 
 Connect AI coding tools (Claude, Cursor, Copilot) to a **live React Three Fiber scene** via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-AI tools can read the scene graph, inspect individual objects, move and resize meshes, change materials, toggle visibility, and capture screenshots — all without touching your source code.
+AI tools can inspect the full scene graph, move and resize objects, change materials, create and delete objects, measure distances and bounding boxes, query the camera frustum, and capture screenshots — all without touching your source code.
 
 ```
 Claude Desktop / Cursor
@@ -39,7 +39,7 @@ import { MCPProvider } from 'r3f-mcp';
 
 export function App() {
   return (
-    // preserveDrawingBuffer enables screenshot capture
+    // preserveDrawingBuffer is required for screenshot capture
     <Canvas gl={{ preserveDrawingBuffer: true }}>
       <MCPProvider port={3333}>
         {/* your scene */}
@@ -83,27 +83,73 @@ npx r3f-mcp-server --port 3333
 }
 ```
 
-Restart your AI tool, then ask it something like:
+Restart your AI tool, then try natural-language prompts like the ones below.
+
+---
+
+## What the AI can do
+
+### Read the scene
 
 > "What objects are in my Three.js scene?"
-> "Move the RedBox to position [0, 2, 0]"
-> "Make the sphere 50% transparent and blue"
-> "Take a screenshot of the current scene"
+> "Show me the full scene tree with all transforms and materials."
+> "What are the properties of the RedBox mesh?"
+
+### Mutate objects
+
+> "Move the RedBox to position [0, 2, 0]."
+> "Rotate the camera 45 degrees on the Y axis."
+> "Make the sphere 50% transparent and blue."
+> "Hide all the helper arrows."
+
+### Add and remove objects *(v0.2)*
+
+> "Add a purple dodecahedron at position [0, 3, 0]."
+> "Create a ring of 6 point lights evenly spaced around the origin."
+> "Remove the GreenTorus from the scene."
+> "Delete all objects whose name starts with 'debug_'."
+
+### Spatial queries *(v0.2)*
+
+> "How big is the player model? What are its world-space dimensions?"
+> "How far apart are the RedBox and BlueSphere?"
+> "What objects can the camera currently see?"
+
+### Scene diffing *(v0.2)*
+
+> "What changed in the scene since you last looked?"
+> "Did anything move while I was editing the code?"
+
+### Screenshot
+
+> "Take a screenshot of the current rendered frame."
 
 ---
 
 ## Tools
 
-The MCP server exposes six tools to AI assistants:
-
 | Tool | Inputs | Description |
 |---|---|---|
-| `scene_graph` | — | Full scene tree with all transforms, geometry, materials |
+| `scene_graph` | — | Full scene tree — transforms, geometry, materials, lights, cameras. Result is cached for `scene_diff`. |
 | `get_object` | `identifier` | Detailed properties of one object by name or UUID |
-| `set_transform` | `identifier`, `position?`, `rotation?`, `scale?` | Move/rotate/scale any Object3D |
-| `set_material` | `identifier`, `color?`, `opacity?`, `metalness?`, `roughness?`, `wireframe?`, `transparent?`, `emissive?` | Change material properties |
-| `set_visible` | `identifier`, `visible` | Show or hide an object |
-| `screenshot` | `width?`, `height?` | Capture current frame as JPEG |
+| `set_transform` | `identifier`, `position?`, `rotation?`, `scale?` | Move / rotate / scale any Object3D |
+| `set_material` | `identifier`, `color?`, `opacity?`, `transparent?`, `metalness?`, `roughness?`, `wireframe?`, `emissive?`, `emissiveIntensity?` | Update material properties |
+| `set_visible` | `identifier`, `visible` | Show or hide an object (and its descendants) |
+| `screenshot` | `width?`, `height?` | Capture the current frame as a PNG; saves to `/tmp/r3f-screenshot-{ts}.png` and returns the image inline |
+| `add_object` | `name`, `type`, `position?`, `rotation?`, `scale?`, `parent?`, `geometry?`, `material?`, light props… | Create a mesh, group, or light in the live scene |
+| `remove_object` | `identifier` | Remove an object and all its children; disposes geometry and materials |
+| `query_bounds` | `identifier` | World-space AABB — returns `min`, `max`, `center`, `size` |
+| `query_distance` | `from`, `to` | World-space distance between two objects, plus their positions and direction vector |
+| `query_frustum` | `camera?` | List every object currently visible in the camera's view frustum |
+| `scene_diff` | — | Compare current scene to the last `scene_graph` / `scene_diff` snapshot — returns added, removed, and modified objects |
+
+### `add_object` geometry types
+
+`box` · `sphere` · `cylinder` · `cone` · `torus` · `plane` · `torusKnot` · `icosahedron` · `octahedron` · `ring` · `dodecahedron`
+
+### `add_object` material types
+
+`standard` (default) · `basic` · `phong` · `lambert` · `physical`
 
 ---
 
@@ -112,16 +158,17 @@ The MCP server exposes six tools to AI assistants:
 ```tsx
 <MCPProvider
   port={3333}                // WebSocket port (default: 3333)
-  readOnly={false}           // Block all mutations (default: false)
-  include={['Mesh']}         // Only expose matching names/types
-  exclude={['AxesHelper']}   // Hide matching names/types
-  screenshotQuality={0.8}    // JPEG quality 0–1 (default: 0.8)
-  onEdit={(edit) => {}}      // Called after every successful mutation
-  onStatus={(status) => {}}  // Called on every connection event
+  readOnly={false}           // Block all mutation tools (default: false)
+  include={['Mesh']}         // Allowlist: only expose objects matching these names/types
+  exclude={['AxesHelper']}   // Denylist: hide objects matching these names/types
+  onEdit={(edit) => {}}      // Callback after every successful mutation or add/remove
+  onStatus={(status) => {}}  // Callback on every connection lifecycle event
 >
   {children}
 </MCPProvider>
 ```
+
+> **`screenshotQuality`** was a JPEG-era prop and has no effect now that screenshots are lossless PNG. The prop is kept for backwards compatibility.
 
 ---
 
@@ -136,7 +183,6 @@ import { useMCPStatus } from 'r3f-mcp';
 
 function StatusBar() {
   const { status, connectedAt, lastError } = useMCPStatus();
-
   return (
     <div>
       MCP: {status}
@@ -150,33 +196,27 @@ function StatusBar() {
 | Field | Type | Description |
 |---|---|---|
 | `status` | `'disconnected' \| 'connecting' \| 'connected' \| 'reconnecting' \| 'error'` | Current connection state |
-| `connectedAt` | `Date \| null` | When the connection was established; null when not connected |
-| `lastError` | `string \| null` | Last error message; null when no error |
+| `connectedAt` | `Date \| null` | Timestamp of the last successful connection; null when not connected |
+| `lastError` | `string \| null` | Error message from the most recent `'error'` event; null otherwise |
 
 ### `<MCPStatusIndicator>`
 
-Drop-in colored dot with a native tooltip. Place it anywhere in your UI:
+Self-contained colored dot with a native tooltip. Works anywhere in your UI:
 
 ```tsx
 import { MCPStatusIndicator } from 'r3f-mcp';
 
-// Minimal — just a dot with tooltip
-<MCPStatusIndicator />
-
-// Larger dot + status label
-<MCPStatusIndicator size={12} showLabel />
+<MCPStatusIndicator />               // dot + tooltip only
+<MCPStatusIndicator size={12} showLabel />  // dot + status text
 ```
 
-- 🟢 Green — connected
-- 🟡 Amber — connecting / reconnecting (animates)
-- 🔴 Red — error
-- ⚫ Gray — disconnected
+🟢 Green — connected &nbsp;·&nbsp; 🟡 Amber — connecting / reconnecting (animates) &nbsp;·&nbsp; 🔴 Red — error &nbsp;·&nbsp; ⚫ Gray — disconnected
 
 ---
 
 ## Object naming
 
-Set `name` on your meshes so AI tools can find them by name:
+Name your meshes so AI tools can find them by name instead of UUID:
 
 ```tsx
 <mesh name="RedBox" position={[0, 1, 0]}>
@@ -185,8 +225,7 @@ Set `name` on your meshes so AI tools can find them by name:
 </mesh>
 ```
 
-Claude can then use `set_transform({ identifier: "RedBox", position: [0, 2, 0] })`.
-Objects without names are accessible via their Three.js UUID (visible in `scene_graph` output).
+Unnamed objects are still accessible via their Three.js UUID, which appears in `scene_graph` output.
 
 ---
 
@@ -194,7 +233,7 @@ Objects without names are accessible via their Three.js UUID (visible in `scene_
 
 ```bash
 # Clone and install
-git clone https://github.com/your-org/r3f-mcp.git
+git clone https://github.com/r3f-mcp/r3f-mcp.git
 cd r3f-mcp
 pnpm install
 
@@ -222,25 +261,32 @@ pnpm dev
 cd examples/basic
 pnpm dev          # Vite dev server + MCP server (port 3333)
 pnpm dev:app      # Vite only
-pnpm dev:mcp      # MCP server only
+pnpm dev:mcp      # MCP server only (tsx watch, no build step required)
 ```
 
 ---
 
 ## How it works
 
-`MCPProvider` is an R3F component that:
-1. Creates a `SceneBridge` WebSocket client that connects to the MCP server
-2. Registers handlers for each tool call type
-3. On `scene_graph`: serializes the Three.js `Scene` object into a JSON tree
-4. On mutations: finds the target object, applies the change, calls `gl.invalidate()` to re-render
-5. On `screenshot`: calls `gl.render(scene, camera)` then `canvas.toDataURL('image/jpeg')`
+**`MCPProvider`** is a zero-geometry R3F component that:
 
-The MCP server (`r3f-mcp-server`):
-1. Listens for tool calls from Claude/Cursor over stdio
-2. Forwards them as WebSocket messages to the browser
-3. Awaits the response with a 10-second timeout
-4. Returns the result formatted as MCP content (text or image)
+1. Opens a `SceneBridge` WebSocket connection to the MCP server on mount
+2. Sends an identification handshake so the server can distinguish it from other
+   processes (e.g. Claude Desktop's internal WebKit) that connect to the same port
+3. Registers typed handlers for every server command:
+   - *Read*: serializes the Three.js `Scene` object into a `SerializedNode` JSON tree
+   - *Mutations*: finds the target by UUID or name, applies the change, calls `invalidate()` to re-render
+   - *Add/Remove*: creates or destroys Three.js objects imperatively; disposes geometry and materials on removal
+   - *Spatial queries*: uses `Box3`, `Vector3`, and `Frustum` from Three.js to compute bounds, distances, and frustum membership in the browser
+   - *Screenshot*: calls `gl.render(scene, camera)` then `canvas.toDataURL('image/png')`
+
+**`r3f-mcp-server`** (the Node.js binary):
+
+1. Binds a WebSocket server and waits for a `MCPProvider` connection
+2. Accepts tool calls from Claude/Cursor via stdio (Model Context Protocol)
+3. Translates each tool call into a WebSocket message, awaits the response (10 s timeout)
+4. For `scene_diff`: stores the last scene graph snapshot in memory and diffs it against the fresh one from the browser — comparing transforms, visibility, material properties, and light settings
+5. Returns results as MCP text or image content blocks
 
 ---
 
