@@ -241,6 +241,21 @@ Warnings are returned to Claude so it can self-correct before the component is c
 
 Four rules always enforced: background is never `#ffffff`; fog color always matches background; space scenes never get a ground plane; `ambientLight` is always paired with directional/spot lighting.
 
+### `scaffold_project` — generated dependency versions
+
+Scaffolded projects use the current `@react-three/*` v9 ecosystem (React 19, Three.js 0.184):
+
+```
+react / react-dom               ^19.0.0
+three                           ^0.184.0
+@react-three/fiber              ^9.0.0
+@react-three/drei               ^10.0.0
+@react-three/postprocessing     ^3.0.0   (+ postprocessing ^6.36.0)
+@react-three/rapier             ^2.0.0   (+ @dimforge/rapier3d-compat ^0.19.0)
+```
+
+> **Note on `postprocessing`:** `ToneMappingMode`, `BlendFunction`, and other constants are imported from the `postprocessing` package directly, not from `@react-three/postprocessing`. Both are included automatically when you pass `features: ["postprocessing"]`.
+
 ### `scaffold_project` — single-call workflow
 
 The recommended pattern is to generate all component code first, then pass it in the `components` array so the entire project is written in one call:

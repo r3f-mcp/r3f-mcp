@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented here.
 
+## [0.4.3] — 2026-05-01
+
+### `scaffold_project` — dependency version fixes
+
+Corrected all package versions in the generated `package.json` to match the current npm ecosystem. The previous versions caused `ERESOLVE` errors because the entire `@react-three/*` v9 ecosystem moved to React 19 and requires `three >=0.168.0`.
+
+| Package | Old | New |
+|---|---|---|
+| `react` / `react-dom` | `^18.2.0` | `^19.0.0` |
+| `three` | `^0.160.0` | `^0.184.0` |
+| `@react-three/fiber` | `^8.15.0` | `^9.0.0` |
+| `@react-three/drei` | `^9.0.0` | `^10.0.0` |
+| `@react-three/postprocessing` | `^2.14.0` | `^3.0.0` |
+| `@react-three/rapier` | `^1.5.0` | `^2.0.0` |
+| `@dimforge/rapier3d-compat` | `^0.12.0` | `^0.19.0` |
+| `@types/react` / `@types/react-dom` | `^18.2.0` | `^19.0.0` |
+| `@types/three` | `^0.160.0` | `^0.184.0` |
+
+The root cause of the `postprocessing` ERESOLVE: `postprocessing ^6.36` requires `three >=0.168.0 <0.185.0`, but the scaffold tool was generating `three ^0.160.0` which doesn't satisfy that range. `three ^0.184.0` is the latest version within the allowed window.
+
+---
+
 ## [0.4.2] — 2026-05-01
 
 ### Context-aware scene environments for `scaffold_project`

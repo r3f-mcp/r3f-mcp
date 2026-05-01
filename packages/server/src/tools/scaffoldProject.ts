@@ -71,21 +71,48 @@ function fmtSize(bytes: number): string {
 function packageJson(name: string, features: string[]): string {
   const hasPhysics = features.includes('physics');
   const hasPost    = features.includes('postprocessing');
+
+  // Peer-dependency chains (verified against npm registry as of v0.4.2):
+  //
+  //   @react-three/fiber ^9   → react ^19, react-dom ^19, three >=0.156
+  //   @react-three/drei ^10   → @react-three/fiber ^9, three >=0.159
+  //   @react-three/postprocessing ^3 → @react-three/fiber ^9, react ^19, three >=0.156
+  //   postprocessing ^6.36    → three >=0.168.0 <0.185.0  ← the binding constraint
+  //   @react-three/rapier ^2  → @react-three/fiber ^9.0.4, react ^19, three >=0.159
+  //   @dimforge/rapier3d-compat → Rapier WASM runtime peer of @react-three/rapier
+  //   r3f-mcp                 → @react-three/fiber, three, react, react-dom
+  //
+  // three is pinned to ^0.184.0 (latest within postprocessing's >=0.168 <0.185 range).
   return JSON.stringify({
     name, version: '0.1.0', private: true, type: 'module',
     scripts: { dev: 'vite', build: 'tsc && vite build', preview: 'vite preview' },
     dependencies: {
-      '@react-three/drei': '^9.0.0',
-      '@react-three/fiber': '^8.15.0',
+      // Core — always included
+      'react': '^19.0.0',
+      'react-dom': '^19.0.0',
+      'three': '^0.184.0',
+      '@react-three/fiber': '^9.0.0',
+      '@react-three/drei': '^10.0.0',
       'r3f-mcp': '^0.4.0',
-      'react': '^18.2.0', 'react-dom': '^18.2.0', 'three': '^0.160.0',
-      ...(hasPhysics ? { '@react-three/rapier': '^1.0.0' } : {}),
-      ...(hasPost    ? { '@react-three/postprocessing': '^2.14.0' } : {}),
+      // Postprocessing — "postprocessing" is the direct peer of @react-three/postprocessing
+      // and the source of ToneMappingMode, BlendFunction, KernelSize, etc.
+      ...(hasPost ? {
+        '@react-three/postprocessing': '^3.0.0',
+        'postprocessing': '^6.36.0',
+      } : {}),
+      // Physics — @dimforge/rapier3d-compat ships the WASM runtime
+      ...(hasPhysics ? {
+        '@react-three/rapier': '^2.0.0',
+        '@dimforge/rapier3d-compat': '^0.19.0',
+      } : {}),
     },
     devDependencies: {
-      '@types/react': '^18.2.0', '@types/react-dom': '^18.2.0',
-      '@types/three': '^0.160.0', '@vitejs/plugin-react': '^4.2.0',
-      'typescript': '^5.4.0', 'vite': '^5.0.0',
+      '@types/react': '^19.0.0',
+      '@types/react-dom': '^19.0.0',
+      '@types/three': '^0.184.0',
+      '@vitejs/plugin-react': '^4.2.0',
+      'typescript': '^5.4.0',
+      'vite': '^5.0.0',
     },
   }, null, 2);
 }

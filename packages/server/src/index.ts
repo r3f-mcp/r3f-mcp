@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   const manager = new WebSocketManager({ port });
 
   const mcpServer = new Server(
-    { name: 'r3f-mcp', version: '0.4.2' },
+    { name: 'r3f-mcp', version: '0.4.3' },
     {
       capabilities: { tools: {} },
       instructions:
