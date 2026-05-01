@@ -2,6 +2,66 @@
 
 All notable changes to this project will be documented here.
 
+## [0.5.0] — 2026-05-01
+
+### `r3f_reference` — comprehensive knowledge base expansion (22 topics)
+
+Rewrote `r3f_reference` with content from the R3F Techniques Compendium. All 15 existing topics expanded; 7 new topics added.
+
+**New topics:**
+
+| Topic | Contents |
+|---|---|
+| `heuristics` | MCP generation defaults — selective bloom (lift colors > 1.0, not threshold=0), instancedMesh cutoff (~20), `frameloop="demand"`, ACES filmic last, Drei pre-built > hand-rolled, scene integration rules, explicit NEVER list |
+| `architecture` | Layer model (DOM/Scene/Object/Shader), single-canvas rule, animation-through-refs vs setState, zustand/jotai/valtio comparison, key R3F hooks reference |
+| `scroll` | `ScrollControls` + `useScroll`, GSAP timeline + `seek()` pattern, r3f-scroll-rig (GlobalCanvas, ScrollScene, useTracker), Lenis, `<View>` + `<View.Port>` |
+| `models` | gltfjsx workflow, full compression pipeline (Draco, Meshopt, KTX2/UASTC/ETC1S, gltf-transform CLI), loading patterns, Gaussian splatting |
+| `libraries` | Complete companion stack with version baseline: react-spring/three, framer-motion-3d, gsap, theatre.js, maath, use-gesture, leva, meshline, lygia, wawa-vfx, r3f-perf |
+| `effects` | 30+ named creative effect recipes: scroll tubes, image reveals, caustics, holographic cards, galaxy, metaballs, iridescent crystal, audio-reactive; with reference sites |
+| `webgpu` | TSL (Three Shader Language) full syntax, `WebGPURenderer` setup, compute shaders, `instancedArray`, storage textures, fallback path |
+
+**Major expansions to existing topics:** cinematic material table in `materials`, shadow tiers table in `lighting`, animation pattern index in `animation`, selective bloom + N8AO + effect stacks in `post-processing`, full `shaderMaterial` code pattern + Lygia/glslify + Shadertoy porting in `shaders`, three-approach taxonomy (CPU/Instanced/GPGPU) + FBO architecture + VFX engines in `particles`, draw call targets + BatchedMesh + memory hygiene + shader micro-opts in `performance`, `InstancedRigidBodies` + ecctrl + sensor triggers in `physics`.
+
+**`generate_component` quality guidelines updated** — reorganised into four sections (Materials, Animation, Structure, Scale & Geometry) with selective bloom technique, `damp`/`damp3` from `maath`, organic motion frequencies, and a scene-integration section ensuring generated components respect the existing scene's aesthetic.
+
+---
+
+## [0.4.4] — 2026-05-01
+
+### `r3f_reference` — comprehensive knowledge base expansion
+
+Completely rewrote the `r3f_reference` tool with content from the R3F Techniques Compendium. All existing topics were expanded and 7 new topics were added.
+
+**Expanded existing topics:**
+
+| Topic | What's new |
+|---|---|
+| `materials` | Full cinematic material table (glass, mirror, diamond, toon, goo, holographic), MeshTransmissionMaterial recipe |
+| `lighting` | Three-lights-max rule, Lightformers recipe, shadow tiers table (5 levels from ContactShadows to lightmaps) |
+| `animation` | Full pattern index table, `damp`/`damp3` from maath, GSAP timeline seek pattern, organic frequency tips |
+| `post-processing` | Selective bloom technique (lift colors > 1.0), GodRays, Outline/Selection, N8AO, cinematic effect stacks |
+| `shaders` | Full `shaderMaterial` code pattern, Lygia/glslify, Shadertoy porting guide, TSL preview |
+| `particles` | Three-approach taxonomy (CPU/Instanced/GPGPU), FBO ping-pong architecture, wawa-vfx / three.quarks, Trails |
+| `performance` | Draw call targets, BatchedMesh, memory hygiene, adaptive quality, shader micro-opts, tools (r3f-perf, Spector.js) |
+| `physics` | `<InstancedRigidBodies>`, ecctrl character controller, joint hooks, sensor trigger volumes |
+| `camera` | Controls taxonomy, scroll camera pattern, `<CubeCamera>`, fov guide |
+
+**New topics:**
+
+| Topic | Contents |
+|---|---|
+| `architecture` | Layer model (DOM/Scene/Object/Shader), single-canvas rule, animation-through-refs principle, zustand/jotai/valtio, key R3F hooks |
+| `scroll` | `ScrollControls` + `useScroll`, GSAP timeline seek pattern, r3f-scroll-rig (GlobalCanvas, ScrollScene, useTracker), Lenis, `<View>` + `<View.Port>` |
+| `models` | gltfjsx workflow, full compression pipeline (Draco, Meshopt, KTX2/UASTC/ETC1S, gltf-transform CLI), loading patterns, Gaussian splatting |
+| `libraries` | Full companion stack with version baseline: react-spring/three, framer-motion-3d, gsap, theatre.js, maath, miniplex, leva, meshline, lygia, wawa-vfx, three.quarks |
+| `effects` | 30+ concrete creative effect recipes: image reveals, scroll tubes, product grids, galaxy, metaballs, caustics, holographic cards, audio-reactive, reference sites |
+| `heuristics` | **The most important new topic.** MCP-specific generation defaults: when to use bloom, instancing, frameloop, ACES filmic, Drei pre-built materials, GSAP vs manual math, and explicit NEVER list |
+| `webgpu` | TSL (Three Shader Language) full syntax, `WebGPURenderer` setup, compute shaders, `instancedArray`, storage textures |
+
+**`generate_component` quality guidelines updated** to incorporate the key heuristics: selective bloom, damp/damp3, organic motion frequencies, Drei pre-built material preference, and the scene-integration rules.
+
+---
+
 ## [0.4.3] — 2026-05-01
 
 ### `scaffold_project` — dependency version fixes

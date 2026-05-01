@@ -79,18 +79,36 @@ export async function handleGenerateComponent(
 Generate a React Three Fiber component and inject it into the running scene.
 
 ═══ QUALITY GUIDELINES (follow these for every component) ════════════════════════
-• NEVER use meshBasicMaterial for visible objects — default to meshStandardMaterial.
-• Set metalness and roughness explicitly (e.g. metalness={0.8} roughness={0.2}).
-• Use delta-time multiplication in useFrame: rotation.y += delta * speed (frame-rate independence).
-• For interactive animations, use spring-style easing (lerp, MathUtils.damp) — never linear snaps.
-• Animate with different frequencies per axis (sin(t * 0.7), cos(t * 1.3)) for organic motion.
-• For particles or repeated objects, use instancedMesh or Points — never individual <mesh> in a loop.
-• For glow effects, set emissive + emissiveIntensity and let the scene's Bloom handle it.
-• Keep geometry detail proportional to object size — small objects: sphereGeometry args [r, 8, 8].
-• Add subtle motion variation (Math.random() seeds, offset phases) to avoid mechanical repetition.
-• Always use useRef, not useState, for values updated in useFrame.
-• Wrap objects in <group> for easy positioning and later transform edits.
-• Use useRef<THREE.Mesh>(null) type annotations for mesh refs.
+MATERIALS:
+• NEVER meshBasicMaterial for lit objects — default to meshStandardMaterial.
+• Set metalness + roughness explicitly. Glass → MeshTransmissionMaterial (import from drei).
+• For glow: set emissive + emissiveIntensity AND lift color above 1 (color={[5, 2, 0]}) to feed Bloom.
+• For "wow": layer HDRI environment + Bloom + SoftShadows + MeshTransmissionMaterial + Sparkles/Trail.
+
+ANIMATION:
+• ALWAYS use delta: useFrame((state, delta) => { ref.current.rotation.y += delta * speed }).
+• Use damp / damp3 from 'maath/easing' for frame-rate-independent smooth following.
+• Different frequencies per axis for organic motion: sin(t*0.7), cos(t*1.3), sin(t*1.1).
+• Prefer Drei <Float> for bobbing, <Trail> for motion trails, @react-spring/three for interactive springs.
+
+STRUCTURE:
+• Mutate refs in useFrame — NEVER setState inside useFrame (kills frame rate).
+• Hoist allocations above useFrame: const v = useMemo(() => new THREE.Vector3(), []).
+• Wrap objects in <group> for clean transform management.
+• Use useRef<THREE.Mesh>(null) type annotations.
+
+SCALE & GEOMETRY:
+• For count > ~20 of same geometry: use instancedMesh, never .map() of <mesh>.
+• Low-poly for particles: sphereGeometry [r, 6, 6] not [r, 32, 32].
+• Keep geometry detail proportional — reduce segments for small/distant objects.
+
+SCENE INTEGRATION:
+• Respect the scene's existing aesthetic — match colors, materials, and scale.
+• If the scene has fog, ensure the component blends into it (don't use pure white materials).
+• include castShadow/receiveShadow when the scene has shadows enabled.
+• Prefer Drei pre-built materials (MeshTransmissionMaterial, MeshReflectorMaterial) over hand-rolled.
+
+For additional guidance: call r3f_reference({ topics: ["heuristics", "materials", "animation"] })
 ═══════════════════════════════════════════════════════════════════════════════════
 
 ═══ TASK ════════════════════════════════════════════════════════════════════════

@@ -4,9 +4,12 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 const VALID_TOPICS = [
+  // Core knowledge (v0.4.1)
   'materials', 'lighting', 'animation', 'post-processing', 'camera',
   'physics', 'particles', 'text', 'shaders', 'performance',
   'composition', 'interactivity', 'audio', 'environment', 'scenes',
+  // New topics (v0.4.4)
+  'architecture', 'scroll', 'models', 'libraries', 'effects', 'heuristics', 'webgpu',
 ] as const;
 
 export const r3fReferenceSchema = z.object({
@@ -21,21 +24,21 @@ export type R3FReferenceInput = z.infer<typeof r3fReferenceSchema>;
 export const r3fReferenceTool: Tool = {
   name: 'r3f_reference',
   description:
-    'Get best practices, recipes, and pro tips for creating high-quality React Three Fiber scenes. ' +
-    'Call this BEFORE generating any component to ensure professional-quality output. ' +
+    'Get expert-level best practices, recipes, and API references for React Three Fiber. ' +
+    'Call this BEFORE generating any component for professional-quality output. ' +
     'Topics: materials, lighting, animation, post-processing, camera, physics, particles, ' +
-    'text, shaders, performance, composition, interactivity, audio, environment, scenes. ' +
-    'Use "scenes" to get environment profiles for space, underwater, product, nature, interior, game, abstract, portfolio. ' +
+    'text, shaders, performance, composition, interactivity, audio, environment, scenes, ' +
+    'architecture, scroll, models, libraries, effects, heuristics, webgpu. ' +
+    'Use "heuristics" for MCP-specific generation defaults. ' +
+    'Use "scenes" for environment profiles. ' +
+    'Use "effects" for 30+ creative effect recipes. ' +
     'This is embedded expert knowledge — no internet fetch required.',
   inputSchema: {
     type: 'object',
     properties: {
       topics: {
         type: 'array',
-        items: {
-          type: 'string',
-          enum: [...VALID_TOPICS],
-        },
+        items: { type: 'string', enum: [...VALID_TOPICS] },
         description: 'One or more topics to fetch guidance for',
         minItems: 1,
       },
@@ -51,358 +54,377 @@ const KNOWLEDGE: Record<typeof VALID_TOPICS[number], string> = {
   materials: `
 MATERIALS BEST PRACTICES FOR R3F:
 
-Golden rule: Never use meshBasicMaterial for anything that should look real. Use meshStandardMaterial
-as your default; meshPhysicalMaterial for glass, water, or car paint.
+Golden rule: Never use meshBasicMaterial for visible lit objects. Default to meshStandardMaterial.
 
-Pro material setups:
+CINEMATIC MATERIAL TABLE:
+| Effect           | Material                    | Critical props                                              |
+|------------------|-----------------------------|-------------------------------------------------------------|
+| Realistic glass  | MeshTransmissionMaterial    | transmission=1, thickness, chromaticAberration, samples=10  |
+| Frosted glass    | MeshTransmissionMaterial    | roughness=0.4, reduce samples for perf                      |
+| Mirror floor     | MeshReflectorMaterial       | mixStrength, mixContrast, blur=[300,100], mixBlur           |
+| Diamond/gem      | MeshRefractionMaterial      | bounces=3, aberrationStrength, use HDRI env                 |
+| Toon outline     | <Outlines thickness color>  | child of mesh                                               |
+| Goo/metaballs    | <MarchingCubes>             | resolution 28-48, MeshTransmissionMaterial                  |
+| Procedural blob  | MeshDistortMaterial         | distort, speed, radius                                      |
+| Vertex wave      | MeshWobbleMaterial          | factor, speed                                               |
+| Decal sticker    | <Decal map position scale>  | applied to GLTF meshes                                      |
+
+PRO SETUPS:
 
 1. Realistic metal
-   <meshStandardMaterial color="#888888" metalness={1} roughness={0.2} envMapIntensity={1} />
-   Always pair with an environment map — without one, metals look flat.
+   <meshStandardMaterial color="#888" metalness={1} roughness={0.2} envMapIntensity={1} />
+   Pair with <Environment /> — without env map, metals look flat.
 
-2. Matte/clay
-   <meshStandardMaterial color="#e8dcc8" metalness={0} roughness={1} />
+2. Glass/crystal (prefer MeshTransmissionMaterial from drei):
+   <MeshTransmissionMaterial transmission={1} thickness={0.5}
+     chromaticAberration={0.06} distortion={0.2} temporalDistortion={0.1}
+     roughness={0} samples={10} resolution={512} />
+   Far superior to transparent + meshPhysicalMaterial.
 
-3. Glass/crystal (best quality)
-   // Import MeshTransmissionMaterial from @react-three/drei
-   <MeshTransmissionMaterial backside samples={16} resolution={512}
-     transmission={1} roughness={0} thickness={0.5} ior={1.5}
-     chromaticAberration={0.06} anisotropy={0.1} />
-   Dramatically better than transparent meshPhysicalMaterial.
-
-4. Glossy plastic with clearcoat
-   <meshPhysicalMaterial color="#ff4444" metalness={0} roughness={0.3}
-     clearcoat={1} clearcoatRoughness={0.1} />
-
-5. Emissive/glowing
+3. Emissive glow:
    <meshStandardMaterial color="#ff6600" emissive="#ff6600" emissiveIntensity={2} />
-   Pair with Bloom post-processing — without bloom, emissive only brightens, doesn't glow.
+   Set material color ABOVE 1.0 (e.g. color={[5, 2, 0]}) to feed selective Bloom.
 
-6. Iridescent/holographic
-   // MeshDistortMaterial from @react-three/drei
-   <MeshDistortMaterial color="#8855ff" metalness={0.8} roughness={0.2}
-     distort={0.3} speed={2} />
+4. Holographic sheen:
+   Custom shader: fresnel (pow(1-dot(viewDir, normal), 3)) + scrolling iridescent gradient.
 
 Tips:
-- Metals need an env map; add <Environment preset="studio" /> for instant reflections.
-- Prefer alphaTest over transparent for cutout effects — avoids sort issues.
-- For many identical objects use instancedMesh with one shared material.
-- Side={THREE.DoubleSide} is expensive; only use when both sides are visible.
+- Transparency causes draw-order issues. Use alphaTest for cutouts, transparency only for true translucency.
+- <Environment /> is required for metallic/transmission materials to look correct.
+- InstancedMesh shares one material across thousands of instances — never create per-instance materials.
 `.trim(),
 
   lighting: `
 LIGHTING BEST PRACTICES FOR R3F:
 
-Golden rule: Add <Environment preset="studio" /> from @react-three/drei immediately.
-It's the single highest-impact quality improvement — reflections, soft light, depth.
+GOLDEN RULE: Add <Environment preset="studio" /> first. Single highest-impact quality improvement.
 
-Environment presets (import from @react-three/drei):
-  "studio"     soft neutral — great for products
-  "city"       urban HDR — realistic outdoor reflections
-  "sunset"     warm golden hour
-  "dawn"       soft pink/blue
-  "night"      dark with accent lights
-  "forest"     green-tinted natural
-  "apartment"  warm interior
-  "park"       bright daylight
-  "warehouse"  industrial
-  "lobby"      soft architectural
+THREE LIGHTS MAX rule for real-time:
+  1. Directional (sun) with shadows.
+  2. Ambient or hemisphere fill — keep intensity LOW (0.1-0.3).
+  3. One accent point/spot.
+  Anything beyond → bake or use an HDRI.
 
-Three-point lighting setup (film/photography standard):
-  <ambientLight intensity={0.2} />                              // keep low
-  <directionalLight position={[5, 5, 5]} intensity={1.5} castShadow />   // key
-  <directionalLight position={[-5, 3, -5]} intensity={0.5} />             // fill
-  <directionalLight position={[0, 5, -10]} intensity={0.8} />             // rim
+SHADOW TIERS (cheapest to richest):
+  1. <ContactShadows>                  — fast fake blob (no mesh shadow).
+  2. <SoftShadows samples={10} size={25}> — PCSS, replaces default sharp shadows.
+  3. <AccumulativeShadows> + <RandomizedLight> — temporal accumulation, baked quality.
+  4. Cascaded Shadow Maps (CSM addon)   — for sprawling outdoor scenes.
+  5. Pre-baked lightmaps (@react-three/lightmap).
+  <BakeShadows /> freezes shadow maps after first render for static scenes.
 
-Shadow setup for quality:
+STYLIZED RIM WITH LIGHTFORMERS (product shot gold standard):
+  <Environment background={false}>
+    <Lightformer position={[5, 5, -5]} scale={[10, 5, 1]} intensity={2} color="#ff8866" />
+    <Lightformer position={[-5, 0, 0]} scale={[1, 10, 1]} intensity={1} color="#88aaff" />
+  </Environment>
+
+ENVIRONMENT PRESETS (drei):
+  "studio"     soft neutral — products   "city"      urban HDR — reflections
+  "sunset"     warm golden hour          "dawn"      pink/blue
+  "night"      dark with accents         "forest"    green-tinted natural
+  "apartment"  warm interior             "park"      bright daylight
+  "warehouse"  industrial                "lobby"     soft architectural
+
+Shadow setup for directional light quality:
   <directionalLight castShadow
     shadow-mapSize-width={2048} shadow-mapSize-height={2048}
-    shadow-camera-far={50}
-    shadow-camera-left={-10} shadow-camera-right={10}
-    shadow-camera-top={10} shadow-camera-bottom={-10}
-    shadow-bias={-0.0001} />
-  Don't forget: <Canvas shadows> and receiveShadow/castShadow on meshes.
-
-Quick attractive shadows: <ContactShadows position={[0,-0.01,0]} opacity={0.5} scale={10} blur={2} /> (drei)
-Soft baked shadows: <AccumulativeShadows> (drei)
-
-Tips:
-- Never rely on ambientLight alone — it kills depth.
-- Color temperature: warm 0xfff0dd, cool 0xd0e0ff.
-- <Lightformer> inside <Environment> adds custom light shapes to the env map.
-- Spot lights with penumbra look more natural than point lights.
+    shadow-camera-far={50} shadow-bias={-0.0001} />
 `.trim(),
 
   animation: `
 ANIMATION BEST PRACTICES FOR R3F:
 
-Golden rule: Never use linear interpolation for user-visible animation. Use easing.
-The difference between amateur and professional is easing.
+PATTERN INDEX:
+| Need                  | Tool                                         |
+|-----------------------|----------------------------------------------|
+| Rotate/translate loop | useFrame + ref mutation                      |
+| Springy hover/click   | @react-spring/three useSpring                |
+| Declarative variants  | framer-motion-3d <motion.mesh>               |
+| Keyframed cinematic   | Theatre.js useCurrentSheet + seek()          |
+| Scroll-locked         | GSAP timeline + useScroll().offset + seek()  |
+| GLTF animations       | useAnimations(animations, ref) from drei     |
+| Morph targets         | mesh.morphTargetInfluences[i] in useFrame    |
+| Frame-rate-safe lerp  | maath/easing damp / damp3 / dampE            |
 
-useFrame patterns:
+ALWAYS USE DELTA for frame-rate independence:
+  useFrame((state, delta) => {
+    meshRef.current.rotation.y += delta * speed;
+    // NOT: rotation.y += 0.01  (frame-rate dependent!)
+  });
 
-1. Frame-rate independent rotation
-   useFrame((state, delta) => {
-     meshRef.current.rotation.y += delta * 0.5;
-   });
+SMOOTH LERP WITH MAATH (preferred over manual lerp):
+  import { damp, damp3, dampE } from 'maath/easing'
+  useFrame((state, delta) => {
+    damp3(meshRef.current.position, targetPos, 0.1, delta)  // smooth 3D follow
+    damp(meshRef.current.scale, targetScale, 0.05, delta)   // smooth scalar
+    dampE(meshRef.current.rotation, targetEuler, 0.1, delta) // smooth rotation
+  })
 
-2. Floating/bobbing (the "Apple product shot" effect)
-   useFrame((state) => {
-     const t = state.clock.elapsedTime;
-     meshRef.current.position.y = Math.sin(t) * 0.2 + baseY;
-     meshRef.current.rotation.x = Math.sin(t * 0.3) * 0.1;
-     meshRef.current.rotation.z = Math.cos(t * 0.2) * 0.05;
-   });
-   Key: use different frequencies per axis — same frequency looks mechanical.
+ORGANIC MOTION — use different frequencies per axis:
+  const t = state.clock.elapsedTime;
+  mesh.position.y = Math.sin(t * 0.7) * 0.2 + base;
+  mesh.rotation.x = Math.sin(t * 0.3) * 0.1;
+  mesh.rotation.z = Math.cos(t * 0.2) * 0.05;
+  // Same frequency on all axes = mechanical. Primes (0.7, 1.3, 0.97) = organic.
 
-3. Smooth follow with lerp/slerp
-   useFrame(() => {
-     meshRef.current.position.lerp(target, 0.05);
-     meshRef.current.quaternion.slerp(targetQ, 0.05);
-   });
+GSAP SCROLL TIMELINE (the canonical pattern):
+  const tl = useRef()
+  const scroll = useScroll()
+  useLayoutEffect(() => {
+    tl.current = gsap.timeline()
+    tl.current.to(ref.current.position, { y: -5, duration: 2 }, 0)
+    tl.current.to(ref.current.rotation, { y: Math.PI, duration: 1 }, 1)
+  }, [])
+  useFrame(() => tl.current.seek(scroll.offset * tl.current.duration()))
 
-4. Spring animations (best for interactive)
-   // @react-spring/three
-   const [springs, api] = useSpring(() => ({
-     scale: [1,1,1],
-     config: { mass: 1, tension: 170, friction: 26 },
-   }));
-   <animated.mesh scale={springs.scale}
-     onPointerOver={() => api.start({ scale: [1.2,1.2,1.2] })}
-     onPointerOut={()  => api.start({ scale: [1,1,1] })}
-   />
-
-5. <Float> from drei — easy bobbing in one line
-   <Float speed={1.5} rotationIntensity={0.5} floatIntensity={0.5}>
-     <mesh />
-   </Float>
-
-Tips:
-- ALWAYS multiply by delta in useFrame for frame-rate independence.
-- Stagger animations for groups — avoid animating everything simultaneously.
-- THREE.MathUtils.damp(current, target, lambda, delta) for smoothed transitions.
-- Math.sin/cos with primes (0.3, 0.7, 1.3) creates organic, non-repeating motion.
+DREI FLOAT for easy bobbing:
+  <Float speed={1.5} rotationIntensity={0.5} floatIntensity={0.5}>
+    <mesh />
+  </Float>
 `.trim(),
 
   'post-processing': `
-POST-PROCESSING BEST PRACTICES FOR R3F:
+POST-PROCESSING FOR R3F (v3+, @react-three/postprocessing):
 
-Use @react-three/postprocessing (wraps pmndrs/postprocessing — much faster than three/examples).
-Import: EffectComposer, Bloom, Vignette, ChromaticAberration, ToneMapping, SMAA, DepthOfField
-
-Essential base setup:
+SETUP: Always wrap in <EffectComposer>. Order matters — ToneMapping goes LAST.
+  <Canvas gl={{ antialias: false }}>  // let SMAA handle AA instead
   <EffectComposer>
-    <Bloom luminanceThreshold={0.9} luminanceSmoothing={0.025} intensity={0.5} mipmapBlur />
-    <Vignette offset={0.5} darkness={0.5} />
+    <Bloom luminanceThreshold={1} luminanceSmoothing={0.9} intensity={1} mipmapBlur />
+    <Vignette offset={0.1} darkness={1.1} />
     <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
   </EffectComposer>
 
-Recipes:
+SELECTIVE BLOOM (the correct approach):
+  luminanceThreshold={1} means only pixels > 1.0 brightness bloom.
+  Lift material colors: color={[5, 2, 0]} on meshBasicMaterial instead of color="#ff4400".
+  This makes specific objects glow without blowing out the whole scene.
 
-1. Cinematic look
-   <Bloom intensity={0.3} luminanceThreshold={0.8} mipmapBlur />
-   <Vignette offset={0.5} darkness={0.5} />
-   <ChromaticAberration offset={[0.001, 0.001]} />
-   <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+EFFECT REFERENCE:
+  <Bloom luminanceThreshold intensity mipmapBlur>        — selective glow
+  <DepthOfField focusDistance focalLength bokehScale>    — cinematic bokeh
+  <GodRays sun={meshRef} samples={60} density={0.96}>   — sun ref = a mesh
+  <SSAO>                                                  — ambient occlusion (legacy)
+  <N8AO>                                                  — modern fast AO
+  <SSR>                                                   — screen-space reflections (heavy)
+  <Vignette offset darkness>                              — corner darkening
+  <ChromaticAberration offset={[0.002, 0.002]}>          — lens fringing
+  <Noise opacity={0.025}>                                 — film grain
+  <Glitch delay strength>                                 — digital glitch
+  <Pixelation granularity={6}>                            — retro pixel look
+  <Outline>                                               — mesh outline highlight
+  <ToneMapping mode={ToneMappingMode.ACES_FILMIC}>       — ALWAYS LAST
 
-2. Neon/cyberpunk
-   <Bloom intensity={1.5} luminanceThreshold={0.1} mipmapBlur />
-   Use emissiveIntensity 2–5 on materials to feed the bloom.
+TONE MAPPING MODES: ACES_FILMIC (cinematic, default), AGX (new photorealistic), NEUTRAL, REINHARD.
 
-3. Dreamy/soft
-   <Bloom intensity={0.5} luminanceThreshold={0.5} luminanceSmoothing={0.9} mipmapBlur />
-   <DepthOfField focusDistance={0.01} focalLength={0.02} bokehScale={3} />
+CINEMATIC STACKS:
+  Clean product:   ToneMapping + SMAA
+  Dramatic:        Bloom (threshold 0.8) + Vignette + ChromaticAberration + ToneMapping
+  Neon/cyberpunk:  Bloom (threshold 0.05, intensity 2) + ToneMapping (use color={[5,0,10]} materials)
+  Dreamy:          Bloom + DepthOfField + ToneMapping
+  Film:            Noise + Vignette + ChromaticAberration + ToneMapping
 
-4. Clean product shot
-   <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-   <SMAA />
-
-Tips:
-- Always use mipmapBlur with Bloom — without it bloom looks harsh.
-- Always use ACES_FILMIC tone mapping for realistic color.
-- Less is more — subtle effects look pro, heavy effects look amateurish.
-- SMAA is cheaper and better-looking than default MSAA.
-- N8AO from drei is better ambient occlusion than SSAO from postprocessing.
+CUSTOM EFFECT: Subclass Effect from 'postprocessing' with a fragment shader, wrap in forwardRef component.
 `.trim(),
 
   camera: `
 CAMERA BEST PRACTICES FOR R3F:
 
-Default camera positions for common scenarios:
-  Product/object showcase:   [0, 2, 5] with fov 50
-  Interior/architectural:    [0, 1.6, 0] looking around (first-person)
-  Hero/dramatic:             [0, 0.5, 3] looking slightly up, fov 35
-  Top-down strategy:         [0, 10, 0] fov 60
-  Isometric-ish:             [10, 10, 10] fov 30 (low fov = more isometric)
+CAMERA POSITION PRESETS:
+  Product showcase:    [0, 1, 5]   fov 40    (low fov = less distortion)
+  Interior eye-level:  [0, 1.6, 5] fov 60
+  Overview/dramatic:   [0, 8, 12]  fov 65
+  Abstract/hero:       [0, 0, 10]  fov 60
+  Cinematic widescreen:[0, 2, 8]   fov 35
 
-Controls:
-  <OrbitControls makeDefault />                    free orbit
-  <PresentationControls>                           constrained for products
-  <FlyControls>                                    first-person fly
-  <PointerLockControls>                            FPS game
+CONTROLS TAXONOMY (drei):
+  <OrbitControls>           — free orbit (most common)
+  <CameraControls>          — camera-controls lib, smooth interpolation, more features
+  <PresentationControls>    — bounded rotation for product showcase
+  <ScrollControls pages={3}> + useScroll() — DOM-scroll-driven camera
+  <MotionPathControls>      — camera follows a Catmull-Rom spline
+  <PointerLockControls>     — FPS first-person
+  <FlyControls>             — free flight
+  <KeyboardControls map>    — WASD game inputs
 
-Animated cameras using useFrame:
-  useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    state.camera.position.x = Math.sin(t * 0.2) * 5;
-    state.camera.position.z = Math.cos(t * 0.2) * 5;
-    state.camera.lookAt(0, 0, 0);
-  });
-
-Smooth camera transition with lerp:
+SCROLL CAMERA PATTERN:
+  const scroll = useScroll()
   useFrame(({ camera }) => {
-    camera.position.lerp(targetPos, 0.05);
-    camera.lookAt(focusPoint);
-  });
+    camera.position.z = 5 - scroll.offset * 3
+    camera.lookAt(0, scroll.offset * 2, 0)
+  })
 
-Tips:
-- Lower fov (30–50) looks cinematic; higher fov (60–90) for games/VR.
-- <CameraShake> from drei adds film-like micro-jitter.
-- <ScrollControls> from drei enables scroll-driven camera paths.
-- Use camera.near = 0.1, camera.far = 1000 as defaults; adjust for scene scale.
+SMOOTH ANIMATED CAMERA:
+  useFrame(({ camera }) => {
+    camera.position.lerp(targetPos, 0.05)   // slow = 0.02, fast = 0.1
+    camera.lookAt(focusTarget)
+  })
+
+TIPS:
+  - <PerspectiveCamera makeDefault> declares camera declaratively — use makeDefault to attach controls.
+  - fov 35-50 for products/archviz, 60-75 for general, 80-90 for games/immersive.
+  - <CubeCamera> for dynamic env maps on reflective surfaces.
+  - <CameraShake intensity={0.5}> from drei adds subtle film-like micro-jitter.
 `.trim(),
 
   physics: `
-PHYSICS WITH @react-three/rapier:
+PHYSICS WITH @react-three/rapier (v2+, React 19, fiber v9):
 
-Setup:
-  import { Physics, RigidBody, CuboidCollider, BallCollider } from '@react-three/rapier'
-  // Wrap scene content in <Physics>
+BASIC SETUP:
   <Physics gravity={[0, -9.81, 0]}>
-    <RigidBody>
-      <mesh><boxGeometry /><meshStandardMaterial /></mesh>
+    <RigidBody colliders='hull' restitution={0.4}>
+      <Suzanne />
     </RigidBody>
-    <RigidBody type="fixed">
-      <mesh rotation={[-Math.PI/2, 0, 0]}><planeGeometry args={[20,20]} /></mesh>
-    </RigidBody>
+    <CuboidCollider args={[20, 0.5, 20]} position={[0, -2, 0]} />
   </Physics>
 
-Body types:
-  type="dynamic"           full physics (default)
-  type="fixed"             immovable (floors, walls)
-  type="kinematicPosition" position-controlled (animated platforms)
+COLLIDER TYPES: hull, trimesh, cuboid, ball, capsule, cone, cylinder.
+  Auto-generated from geometry by default. Explicit colliders are faster.
 
-Common patterns:
+BODY TYPES:
+  type="dynamic"           — full physics (default)
+  type="fixed"             — immovable (floors, walls)
+  type="kinematicPosition" — position-controlled (animated platforms)
 
-1. Bouncy balls
-   <RigidBody restitution={0.8} friction={0.5}>
+INSTANCED PHYSICS (thousands of rigid bodies):
+  <InstancedRigidBodies positions={…} rotations={…}>
+    <instancedMesh args={[geo, mat, count]}>
+      …
+    </instancedMesh>
+  </InstancedRigidBodies>
 
-2. Apply impulse on click
-   const rbRef = useRef()
-   <RigidBody ref={rbRef}>
-   onClick={() => rbRef.current.applyImpulse({ x: 0, y: 5, z: 0 }, true)
+JOINTS: useFixedJoint, useSphericalJoint, useRevoluteJoint, usePrismaticJoint
 
-3. Read body state
-   useFrame(() => {
-     const pos = rbRef.current.translation()
-     const vel = rbRef.current.linvel()
-   })
+APPLY IMPULSE ON CLICK:
+  const rbRef = useRef()
+  onClick={() => rbRef.current.applyImpulse({ x: 0, y: 10, z: 0 }, true)
+  rbRef.current.applyTorqueImpulse({ x: 0, y: Math.random(), z: 0 }, true)
 
-4. Trigger zones (sensors)
-   <RigidBody type="fixed" sensor onIntersectionEnter={() => console.log('entered!')}>
-     <BallCollider args={[2]} />
-   </RigidBody>
+CHARACTER CONTROLLER (ecctrl):
+  import { Ecctrl, EcctrlAnimation } from 'ecctrl'
+  <Ecctrl jumpVel={5} maxVelLimit={10}>
+    <Suzanne />
+  </Ecctrl>
+  Drop-in third-person capsule character with WASD, jump, run, double-jump, follow camera.
 
-Tips:
-- useRegisterPhysics(world) from r3f-mcp exposes the world to the AI tools.
-- debug prop on <Physics> shows collider outlines.
-- Use CuboidCollider/BallCollider explicitly for better performance than auto-detection.
-- Rapier uses meters — keep objects at real-world scale (1 unit = 1 m).
+SENSORS (trigger volumes):
+  <RigidBody type="fixed" sensor
+    onIntersectionEnter={({ other }) => console.log('entered!', other.rigidBodyObject?.name)}>
+    <BallCollider args={[3]} />
+  </RigidBody>
+
+REGISTER WITH MCP: Call useRegisterPhysics(world) from useRapier() inside your <Physics> provider
+to enable the get_physics MCP tool.
 `.trim(),
 
   particles: `
 PARTICLES BEST PRACTICES FOR R3F:
 
-Golden rule: Use instancedMesh or Points for anything over 100 particles.
-Individual meshes per particle kills performance.
+THREE APPROACHES (by scale):
 
-1. Star field / floating dust (Points — fastest)
-   const positions = useMemo(() => {
-     const arr = new Float32Array(5000 * 3);
-     for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() - 0.5) * 50;
-     return arr;
-   }, []);
+1. CPU ATTRIBUTES (<10k particles):
+   const positions = useMemo(() => new Float32Array(count * 3).fill(0).map(() => (Math.random()-0.5)*20), [])
    <points>
      <bufferGeometry>
-       <bufferAttribute attach="attributes-position" count={5000} array={positions} itemSize={3} />
+       <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
      </bufferGeometry>
-     <pointsMaterial size={0.05} color="#ffffff" sizeAttenuation transparent opacity={0.8} />
+     <pointsMaterial size={0.05} sizeAttenuation transparent blending={THREE.AdditiveBlending} depthWrite={false} />
    </points>
+   Update per-frame: geometry.attributes.position.needsUpdate = true
 
-2. Animated instanced particles (instancedMesh)
-   const dummy = useMemo(() => new THREE.Object3D(), []);
-   const particles = useMemo(() => Array.from({ length: 200 }, () => ({
-     pos: [(Math.random()-0.5)*10, Math.random()*5, (Math.random()-0.5)*10],
-     speed: Math.random() * 0.5 + 0.2,
-   })), []);
+2. INSTANCED MESH (100k+ identical objects):
+   const dummy = useMemo(() => new THREE.Object3D(), [])
    useFrame(({ clock }) => {
      particles.forEach((p, i) => {
-       dummy.position.set(p.pos[0], p.pos[1] + Math.sin(clock.elapsedTime * p.speed) * 0.3, p.pos[2]);
-       dummy.updateMatrix();
-       ref.current.setMatrixAt(i, dummy.matrix);
-     });
-     ref.current.instanceMatrix.needsUpdate = true;
-   });
-   <instancedMesh ref={ref} args={[undefined, undefined, 200]}>
-     <sphereGeometry args={[0.05, 6, 6]} />
+       dummy.position.set(p.x, p.y + Math.sin(clock.elapsedTime * p.speed) * 0.3, p.z)
+       dummy.updateMatrix()
+       ref.current.setMatrixAt(i, dummy.matrix)
+     })
+     ref.current.instanceMatrix.needsUpdate = true
+   })
+   <instancedMesh ref={ref} args={[undefined, undefined, count]}>
+     <sphereGeometry args={[0.05, 6, 6]} />  {/* low poly for small objects! */}
      <meshStandardMaterial color="#88aaff" emissive="#88aaff" emissiveIntensity={0.5} />
    </instancedMesh>
 
-3. Quick magic dust: <Sparkles count={50} scale={5} size={2} speed={0.5} /> (drei)
-4. Trails: <Trail> component from drei
+3. GPGPU / FBO PING-PONG (1M+ particles):
+   - Store positions/velocities in floating-point textures.
+   - Evolve via simulationMaterial fragment shader each frame.
+   - Sample output texture in vertex shader to place particles.
+   - useFBO() from drei for render targets.
 
-Tips:
-- Use low-poly for instanced particles: sphereGeometry args [r, 6, 6] not [r, 32, 32].
-- Glowing particles: blending={THREE.AdditiveBlending} depthWrite={false}.
-- Add variety: randomize size, speed, starting phase for organic feel.
-- For trails use drei's <Trail> component.
+VFX ENGINES (ready-made):
+  wawa-vfx:    <VFXParticles> + <VFXEmitter> — GPU-accelerated, billboard or mesh.
+  three.quarks + quarks.r3f — Unity-shuriken emitters: SizeOverLife, ColorOverLife, PiecewiseBezier.
+
+TRAILS:
+  Drei <Trail width={2} length={10} color="#fff"> — quick mesh trail behind any object.
+  MeshLineGeometry + MeshLineMaterial from 'meshline' — variable-width billboarded line with widthCallback.
+
+SPARKLES (quick magic dust):
+  <Sparkles count={50} scale={5} size={6} speed={0.4} color="#fff" />
+
+TIPS:
+  - Low-poly instances: sphereGeometry args [r, 6, 6] never [r, 32, 32] for small particles.
+  - Additive blending: blending={THREE.AdditiveBlending} depthWrite={false} for glowing particles.
+  - Randomize: size, speed, starting phase, color hue — identical particles look wrong.
 `.trim(),
 
   text: `
 3D TEXT IN R3F:
 
-1. Simple 3D text (drei)
+1. SDF text (best quality, all sizes):
+   import { Text } from '@react-three/drei'
+   <Text fontSize={0.5} color="#ffffff" anchorX="center" anchorY="middle"
+     font="/fonts/Inter-Bold.woff" sdfGlyphSize={64}>
+     Hello World
+   </Text>
+   Powered by troika-three-text. Supports wrapping, alignment, letterSpacing.
+
+2. Extruded 3D text:
    import { Text3D, Center } from '@react-three/drei'
    <Center>
-     <Text3D font="/fonts/helvetiker_regular.typeface.json" size={1} height={0.2}
-       curveSegments={12} bevelEnabled bevelThickness={0.02} bevelSize={0.02}>
-       Hello World
-       <meshStandardMaterial color="#ffffff" metalness={0.5} roughness={0.3} />
+     <Text3D font="/fonts/helvetiker_regular.typeface.json"
+       size={1} height={0.2} curveSegments={12}
+       bevelEnabled bevelThickness={0.02} bevelSize={0.02}>
+       R3F
+       <meshStandardMaterial color="#fff" metalness={0.5} roughness={0.2} />
      </Text3D>
    </Center>
-   Fonts: download .typeface.json from drei's font collection or convert with facetype.js.
+   Always wrap in <Center> — Text3D is left-aligned at origin.
+   Fonts: download typeface.json from drei or convert with facetype.js.
 
-2. Billboard text (always faces camera)
-   import { Text } from '@react-three/drei'
-   <Text fontSize={0.5} color="#ffffff" anchorX="center" anchorY="middle">
-     Label
-   </Text>
+3. Billboard label (always faces camera):
+   <Billboard>
+     <Text fontSize={0.2}>Label</Text>
+   </Billboard>
 
-3. HTML overlay on 3D point
+4. HTML overlay on 3D point:
    import { Html } from '@react-three/drei'
-   <Html position={[0, 2, 0]} center>
-     <div style={{ color: 'white', background: 'rgba(0,0,0,0.5)', padding: '4px 8px' }}>
-       Tooltip
+   <Html position={[0, 2, 0]} center occlude distanceFactor={10}>
+     <div style={{ color: 'white', background: 'rgba(0,0,0,0.7)', padding: '4px 8px', borderRadius: 4 }}>
+       Interactive tooltip
      </div>
    </Html>
+   occlude={true} hides the element behind meshes. distanceFactor scales by depth.
 
-Tips:
-- Text3D needs a font file — always use Center to reposition after loading.
-- For many labels, prefer <Text> (2D sprite) over Text3D for performance.
-- Use <Html> for rich interactive overlays (buttons, input fields).
-- Distort text by animating scale with sin/cos on individual letters (map over chars).
+TIPS:
+  - <Text> (2D sprite) is far cheaper than Text3D for many labels.
+  - Use Html for rich interactive overlays with React state, buttons, inputs.
+  - <ScreenSpace> / <ScreenSizer> for fixed HUD overlays that ignore camera transform.
 `.trim(),
 
   shaders: `
-CUSTOM SHADER TIPS FOR R3F:
+CUSTOM SHADERS FOR R3F:
 
-Use drei's shaderMaterial helper:
+SHADERMATTEIAL PATTERN (canonical):
   import { shaderMaterial } from '@react-three/drei'
-  import { extend } from '@react-three/fiber'
+  import { extend, useFrame } from '@react-three/fiber'
+  import * as THREE from 'three'
 
   const WaveMaterial = shaderMaterial(
-    { uTime: 0, uColor: new THREE.Color('#ff0000') },
-    // vertex shader
+    { uTime: 0, uColor: new THREE.Color('#ff6600'), uMouse: new THREE.Vector2() },
+    /* vertex */
     \`varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -410,350 +432,723 @@ Use drei's shaderMaterial helper:
       pos.z += sin(pos.x * 5.0 + uTime) * 0.1;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
     }\`,
-    // fragment shader
-    \`uniform float uTime;
-    uniform vec3 uColor;
-    varying vec2 vUv;
+    /* fragment */
+    \`uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
     void main() {
       float s = sin(vUv.x * 10.0 + uTime) * 0.5 + 0.5;
       gl_FragColor = vec4(uColor * s, 1.0);
     }\`
-  );
-  extend({ WaveMaterial });
+  )
+  extend({ WaveMaterial })
 
-  // Usage in JSX:
-  const matRef = useRef();
-  useFrame(({ clock }) => { matRef.current.uTime = clock.elapsedTime; });
-  <mesh><planeGeometry args={[2,2,32,32]} /><waveMaterial ref={matRef} /></mesh>
+  function Mesh() {
+    const ref = useRef()
+    useFrame((state, dt) => { ref.current.uTime += dt })
+    return <mesh><planeGeometry args={[2, 2, 64, 64]} /><waveMaterial ref={ref} /></mesh>
+  }
 
-Common shader patterns:
-  Gradient:     mix(color1, color2, vUv.y)
-  Pulse:        sin(uTime) * 0.5 + 0.5
-  Fresnel/rim:  pow(1.0 - dot(viewDir, normal), 3.0)
-  Dissolve:     step(noise(vPosition), uProgress)
-  Checkerboard: mod(floor(vUv.x * 10.0) + floor(vUv.y * 10.0), 2.0)
+ESSENTIAL PATTERNS:
+  Fresnel:        pow(1.0 - dot(viewDir, normal), 3.0)
+  FBM:            4-6 octaves of simplex noise, growing frequency, shrinking amplitude
+  Curl noise:     divergence-free 3D noise for swirling particle flows
+  Mask reveal:    step(noise(uv), uProgress) driven 0→1 by GSAP
+  Dispersion:     refract per RGB channel with slightly different IORs
+  Vertex wave:    pos.z += sin(uv.x * 10.0 + uTime) * amplitude
+  Topography:     floor(noise * 10.0) / 10.0 for contour bands
 
-Tips:
-- Always pass time as a uniform; never compute it in the shader from gl_FragCoord.
-- Custom shaders skip PBR — use onBeforeCompile to extend existing materials if you need lighting.
-- <MeshPortalMaterial> and <MeshReflectorMaterial> from drei are pre-built advanced shaders.
-- For noise: use a glsl-noise import or paste simplex noise inline.
+MODULAR GLSL:
+  glslify + babel-plugin-glsl: #pragma glslify: snoise = require('glsl-noise/simplex/3d')
+  Lygia (resolve-lygia): #include "lygia/generative/pnoise.glsl" — massive function library
+
+SHADERTOY PORTING:
+  Map: iTime → uTime, iResolution → uResolution, iMouse → uMouse, iChannel0 → uMap
+  Replace mainImage(out fragColor, in fragCoord) with standard void main()
+  Use gl_FragCoord and gl_FragColor. Feed through <ScreenQuad> for fullscreen effects.
+
+TSL (Three Shader Language, the future — see 'webgpu' topic):
+  Compiles to WGSL (WebGPU) and GLSL (WebGL). Import from 'three/tsl'.
+  mat.colorNode = color(1, 0, 0).mul(sin(time).mul(0.5).add(0.5))
+
+ON-BEFORE-COMPILE (extend existing materials):
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = { value: 0 }
+    shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', '…')
+  }
+  Lets you add displacement/color without losing PBR lighting.
 `.trim(),
 
   performance: `
-PERFORMANCE BEST PRACTICES FOR R3F:
+PERFORMANCE PLAYBOOK FOR R3F:
 
-Profile first: use get_performance and get_performance_profile tools to identify bottlenecks.
+FRAME LOOP:
+  <Canvas frameloop='demand'> — render only when invalidate() is called. Best for static/interactive scenes.
+  <Canvas frameloop='always'> — default, continuous 60fps render loop.
+  <Canvas frameloop='never'> — fully manual via gl.render(scene, camera).
 
-Key metrics to watch:
-  Draw calls < 100 per frame (each mesh = 1 draw call)
-  Triangle count < 500K for smooth 60 fps
-  Texture memory < 256 MB
+DRAW CALLS — target <100/frame:
+  Check: renderer.info.render.calls (or r3f-perf overlay)
+  <InstancedMesh> / drei <Instances> — 1 draw call for thousands of same geometry.
+  BatchedMesh (r156+) — varied geometries sharing a material.
+  mergeGeometries (BufferGeometryUtils) — static scenery into one mesh.
 
-Reduce draw calls:
-  - Merge static geometry: BufferGeometryUtils.mergeGeometries([...])
-  - Use instancedMesh for repeated objects (1 draw call for 10K instances)
-  - Use <Merged> from drei to auto-merge compatible geometry
+USEFRAME DISCIPLINE:
+  MUTATE REFS not state: meshRef.current.position.x += delta * speed
+  NEVER ALLOCATE inside loop: not new THREE.Vector3() — hoist to useMemo or module scope
+  ALWAYS USE DELTA: rotation.y += speed * delta (not += 0.01)
+  Subscribe selectors: useStore(state => state.x) not useStore() to avoid full re-renders
 
-Reduce triangle count:
-  - LOD: use fewer segments for distant objects (sphereGeometry args [r, 8, 8] not [r, 64, 64])
-  - drei's <Detailed> component for automatic LOD
-  - Bake normal maps instead of high-poly geometry
+MEMORY HYGIENE:
+  Dispose on unmount: geo.dispose(), mat.dispose(), tex.dispose(), renderTarget.dispose()
+  ImageBitmap: texture.source.data.close?.()
+  Object pool for spawn-heavy systems (bullets, particles).
+  Cache textures: const cache = new Map(); if (!cache.has(url)) cache.set(url, loader.load(url))
 
-Texture optimization:
-  - Use power-of-two texture sizes (512, 1024, 2048)
-  - Compress with KTX2 / Basis format
-  - <useTexture> from drei caches texture loads
+ADAPTIVE QUALITY:
+  <AdaptiveDpr pixelated /> — drops devicePixelRatio on performance regress.
+  <AdaptiveEvents /> — disables raycasting on regress.
+  <PerformanceMonitor onDecline={() => setQuality('low')} onIncline={() => setQuality('high')}>
 
-R3F-specific optimizations:
-  - <Canvas frameloop="demand"> renders only when state changes (great for static scenes)
-  - <Canvas performance={{ min: 0.5 }}> auto-scales pixel ratio under load
-  - Dispose geometry/materials on unmount: useEffect(() => () => geo.dispose(), [])
-  - Frustum culling is automatic — ensure object.frustumCulled = true (default)
+SHADER MICRO-OPTS:
+  precision mediump float; — ~2x faster than highp on mobile GPU.
+  Replace if/else with mix(a, b, step(t, x)).
+  Minimize varyings (<3 ideal); pack into vec4s.
+  Pack 4 scalars into one RGBA data texture.
+  Avoid dynamic loops; unroll short ones.
 
-useFrame tips:
-  - Don't create objects inside useFrame (new Vector3(), new Color()) — allocate once with useMemo/useRef
-  - Use ref.current checks before accessing — component may unmount
-  - Expensive computations: only run every N frames using state.clock.elapsedTime % interval
+RAYCASTING:
+  <Bvh> — wraps three-mesh-bvh, ~100x faster raycasting on large meshes.
+  Set raycast={null} on non-interactive meshes.
+  Layers to exclude objects from raycasting.
 
-React tips:
-  - Avoid re-renders: useMemo for geometry/material, useRef instead of useState for animation values
-  - Use <Suspense> to lazy-load heavy assets
-  - drei's <Preload all> preloads all pending assets
+LOD:
+  <Detailed distances={[0, 25, 100]}>
+    <HighPolyMesh /><MedPolyMesh /><LowPolyMesh />
+  </Detailed>
+
+TOOLS:
+  r3f-perf — overlay with shaders, draw calls, vertices, GPU timing.
+  stats-gl / stats.js — frame timing.
+  Spector.js — captures/replays a single frame, lists every WebGL call.
+  renderer.info — programmatic counts.
 `.trim(),
 
   composition: `
-SCENE COMPOSITION BEST PRACTICES:
+SCENE COMPOSITION BEST PRACTICES (unchanged from photography/film):
 
-Follow photography and film composition rules.
+RULE OF THIRDS: Don't center everything. Place subjects at 1/3 or 2/3 screen positions.
 
-1. Rule of thirds: don't center everything. Place key objects at 1/3 or 2/3 positions.
+DEPTH LAYERING — always have foreground, midground, background:
+  Near:     close objects, possibly blurred with DepthOfField
+  Middle:   main subject
+  Far:      environment, skybox, fog
 
-2. Depth layering — always have foreground, midground, background:
-   Near:    close objects, possibly blurred with DepthOfField
-   Middle:  main subject
-   Far:     environment, skybox, fog
+GROUND PLANE — almost every non-space/abstract scene needs one as visual anchor.
 
-3. Ground plane — almost every scene needs one:
-   <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-     <planeGeometry args={[50, 50]} />
-     <meshStandardMaterial color="#1a1a1a" />
-   </mesh>
-   Or <ContactShadows> for a minimal, clean ground shadow.
+FOG adds depth — always match fog color exactly to background:
+  <fog attach="fog" args={[bgColor, near, far]} />         // linear
+  <fogExp2 attach="fog" args={[bgColor, 0.05]} />          // exponential (more natural)
 
-4. Fog adds depth and atmosphere:
-   <fog attach="fog" args={['#000000', 5, 30]} />
+CAMERA HEIGHT SEMANTICS:
+  y: 8-15     authority / overview / god view
+  y: 1.6      eye level / intimacy / human scale
+  y: 0.5      dramatic low angle / vulnerability
 
-5. Scale: keep 1 unit = 1 meter for predictable lighting and physics behavior.
+SCALE: 1 unit = 1 meter. Keeps lighting, physics, and shadows behaving predictably.
 
-6. Color palette: max 2–3 main colors + neutrals. Use a dark background (#0a0a0a, not #000000).
+COLOR PALETTE: Maximum 2-3 main colors + neutrals. Use HSL for easy harmony.
+  - Analogous: hues within 30° of each other (calm, cohesive)
+  - Complementary: opposite hues (high contrast, dynamic)
+  - Triadic: 120° apart (vibrant, complex)
 
-7. Negative space: don't fill every corner. Empty space draws focus to the subject.
+NEGATIVE SPACE: Don't fill every corner. Empty space draws focus to what's there.
 
-Quick atmosphere additions:
-  <Stars radius={100} depth={50} count={5000} factor={4} fade speed={1} />  (drei)
-  <Sky sunPosition={[100, 20, 100]} turbidity={0.1} />                      (drei)
-  <fog attach="fog" args={['#1a1a2e', 5, 30]} />
-  <color attach="background" args={['#0a0a14']} />
+ATMOSPHERE ADDITIONS:
+  <Stars radius={100} depth={50} count={5000} factor={4} />   (drei)
+  <Clouds />                                                    (drei)
+  <Sky sunPosition={[100, 20, 100]} />                         (drei)
+  <Backdrop>                                                    (infinite cyclorama)
+  <fog attach="fog" args={[color, near, far]} />
 
-Camera heights:
-  y: 5–10    authority / overview
-  y: 1.6     eye level / intimacy
-  y: 0.5     dramatic low angle
-
-Tips:
-  - Group related objects and animate the group, not individuals.
-  - <PresentationControls> from drei for constrained product viewing.
-  - Match fog color to background color — mismatches look amateur.
+DEPTH OF FIELD for cinematic focus:
+  <DepthOfField focusDistance={0.01} focalLength={0.02} bokehScale={3} />
 `.trim(),
 
   interactivity: `
 INTERACTIVITY BEST PRACTICES FOR R3F:
 
-1. Hover with spring (the professional standard)
-   const [hovered, setHovered] = useState(false);
-   const { scale } = useSpring({ scale: hovered ? 1.15 : 1, config: { tension: 200, friction: 20 } });
-   <animated.mesh scale={scale}
-     onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer'; }}
-     onPointerOut={()  => { setHovered(false); document.body.style.cursor = 'default'; }}
-   />
+HOVER WITH SPRING (the professional standard):
+  import { useSpring, animated } from '@react-spring/three'
+  const [hovered, setHovered] = useState(false)
+  const { scale } = useSpring({ scale: hovered ? 1.15 : 1, config: { tension: 200, friction: 20 } })
+  <animated.mesh scale={scale}
+    onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer' }}
+    onPointerOut={()  => { setHovered(false); document.body.style.cursor = 'default' }}
+  />
 
-2. Click with propagation guard
-   <mesh onClick={(e) => {
-     e.stopPropagation(); // prevent click-through to objects behind
-     handleClick();
-   }} />
+CLICK WITH PROPAGATION GUARD:
+  <mesh onClick={(e) => { e.stopPropagation(); handleClick() }} />
+  Always stopPropagation() to prevent click-through to objects behind.
 
-3. Drag (@use-gesture/react)
-   import { useDrag } from '@use-gesture/react'
-   const [pos, setPos] = useState([0, 0, 0]);
-   const bind = useDrag(({ offset: [x, y] }) => setPos([x / 100, -y / 100, 0]));
-   <mesh {...bind()} position={pos} />
+DRAG (use-gesture):
+  import { useDrag } from '@use-gesture/react'
+  const [pos, setPos] = useState([0, 0, 0])
+  const bind = useDrag(({ offset: [x, y] }) => setPos([x/100, -y/100, 0]))
+  <mesh {...bind()} position={pos} />
 
-4. Raycasting optimization
-   - Set raycast={null} on non-interactive objects.
-   - <BVH> from drei accelerates raycasting on complex meshes.
-   - Use layers to exclude objects from raycasting.
+RAYCASTING PERFORMANCE:
+  <Bvh> — 100x faster raycasting on complex meshes.
+  raycast={null} on non-interactive objects.
+  layers to exclude objects from ray tests.
 
-5. HTML labels/tooltips on 3D objects
-   <Html position={[0, 1.5, 0]} center distanceFactor={10}>
-     <div style={{ background: 'rgba(0,0,0,0.8)', color: 'white', padding: '4px 8px', borderRadius: 4 }}>
-       Label
-     </div>
-   </Html>
+HTML TOOLTIPS ON 3D:
+  <Html position={[0, 1.5, 0]} center occlude distanceFactor={10}>
+    <div style={{ pointerEvents: 'auto' }}>Clickable HTML</div>
+  </Html>
 
-Tips:
-  - Always e.stopPropagation() in click handlers.
-  - Combine hover with spring for responsive feel — setState + spring is the pattern.
-  - Reset cursor on pointerOut — forgetting this leaves a stuck pointer cursor.
-  - <Canvas eventPrefix="client"> for correct coordinates with CSS transforms.
+SELECTION HIGHLIGHT:
+  import { Select, Selection } from '@react-three/postprocessing'
+  <Selection>
+    <EffectComposer><Outline visibleEdgeColor="white" edgeStrength={3} /></EffectComposer>
+    <Select enabled={hovered}><mesh /></Select>
+  </Selection>
+
+KEYBOARD CONTROLS (game style):
+  <KeyboardControls map={[
+    { name: 'forward', keys: ['w', 'ArrowUp'] },
+    { name: 'back',    keys: ['s', 'ArrowDown'] },
+  ]}>
+    {/* inside: const [, get] = useKeyboardControls(); get().forward */}
+  </KeyboardControls>
 `.trim(),
 
   audio: `
 AUDIO IN R3F:
 
-Use @react-three/drei's <PositionalAudio> for 3D spatialized sound:
-
+3D POSITIONAL AUDIO (drei):
   import { PositionalAudio } from '@react-three/drei'
   <mesh>
     <sphereGeometry />
     <meshStandardMaterial />
     <PositionalAudio url="/sound.mp3" distance={5} loop />
   </mesh>
+  Sound attenuates with distance. Must be child of the mesh it's attached to.
 
-For non-positional audio (background music, UI sounds), use the Web Audio API directly or
-a library like Howler.js alongside your R3F scene.
+WEB AUDIO API (direct):
+  const ctx = new AudioContext()
+  const buf = await fetch('/sound.mp3').then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start()
 
-React-use-audio-player is a simple option:
+BACKGROUND MUSIC (react-use-audio-player):
   import { useAudioPlayer } from 'react-use-audio-player'
-  const { play, pause } = useAudioPlayer({ src: '/music.mp3', autoplay: true, loop: true })
+  const { play, pause, stop } = useAudioPlayer({ src: '/music.mp3', autoplay: false, loop: true })
+  // Trigger from a click event (browsers block autoplay without interaction)
 
-Tips:
-  - Browsers block autoplay until user interaction — trigger audio from a click/keypress.
-  - <PositionalAudio> needs to be a child of the mesh it's attached to.
-  - Use rolloffFactor and refDistance to tune how quickly audio fades with distance.
-  - For click/hover sounds, create and play an AudioBuffer in the event handler.
+HOWLER.JS (if not in R3F context):
+  import { Howl } from 'howler'
+  const sound = new Howl({ src: ['/shoot.mp3'], volume: 0.5 })
+  sound.play()
+
+SYNC AUDIO TO ANIMATION:
+  useFrame(() => {
+    const amplitude = analyser.getFloatTimeDomainData(dataArray)
+    meshRef.current.scale.y = 1 + amplitude * 2  // audio-reactive mesh
+  })
+
+TIPS:
+  - Browsers BLOCK autoplay until user interaction. Trigger audio from click/keypress.
+  - rolloffFactor and refDistance tune how quickly 3D audio fades with distance.
+  - useThree's addEffect is useful for syncing the audio clock to the render clock.
 `.trim(),
 
   environment: `
 ENVIRONMENT AND SKYBOX BEST PRACTICES:
 
-1. Quickest quality boost (do this first)
-   <Environment preset="city" />   // adds lighting AND reflections
+QUICKEST QUALITY BOOST:
+  <Environment preset="city" />   // adds lighting AND reflections simultaneously
 
-2. Environment with ground
-   <Environment preset="sunset" ground={{ height: 15, radius: 60, scale: 100 }} />
+ENVIRONMENT PRESETS (drei):
+  "studio"/"city"/"sunset"/"dawn"/"night"/"forest"/"apartment"/"park"/"warehouse"/"lobby"
 
-3. Custom HDRI
-   <Environment files="/hdr/environment.hdr" />
-   Free HDRIs: polyhaven.com/hdris
+GROUND PROJECTION (real shadows on env floor):
+  <Environment preset="sunset" ground={{ height: 15, radius: 60, scale: 100 }} />
 
-4. Sky with realistic sun
-   import { Sky } from '@react-three/drei'
-   <Sky sunPosition={[100, 20, 100]} turbidity={0.1} rayleigh={0.5} />
+CUSTOM HDRI:
+  <Environment files="/hdr/environment.hdr" />
+  Free HDRIs: polyhaven.com/hdris (1K for realtime, 4K for baking)
 
-5. Stars
-   import { Stars } from '@react-three/drei'
-   <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+SKY WITH REALISTIC SUN:
+  <Sky sunPosition={[100, 20, 100]} turbidity={0.1} rayleigh={0.5} />
 
-6. Solid background color
-   <color attach="background" args={['#0a0a14']} />
+STARS BACKGROUND:
+  <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
 
-7. Gradient background (use a large sphere + gradient shader, or:)
-   // CSS on the canvas parent element with a gradient background
+REFLECTIVE FLOOR:
+  <MeshReflectorMaterial blur={[300, 100]} resolution={1024}
+    mixBlur={1} mixStrength={50} roughness={0.5} depthScale={1.2}
+    color="#202030" metalness={0.5} />
 
-8. Fog for depth/atmosphere
-   <fog attach="fog" args={['#1a1a2e', 5, 30]} />         // linear fog
-   <fogExp2 attach="fog" args={['#1a1a2e', 0.05]} />      // exponential fog
+BACKGROUND COLOR (always set something):
+  <color attach="background" args={['#0a0a14']} />
+  NEVER leave the default black without intention — it signals an unfinished scene.
 
-9. Reflective floor
-   import { MeshReflectorMaterial } from '@react-three/drei'
-   <mesh rotation={[-Math.PI/2, 0, 0]}>
-     <planeGeometry args={[20, 20]} />
-     <MeshReflectorMaterial blur={[300, 100]} resolution={1024} mixBlur={1}
-       mixStrength={50} roughness={0.5} depthScale={1.2} color="#202030" metalness={0.5} />
-   </mesh>
+FOG FOR ATMOSPHERE (fog color MUST match background):
+  <fog attach="fog" args={['#1a1a2e', 5, 30]} />         // linear
+  <fogExp2 attach="fog" args={['#1a1a2e', 0.05]} />      // exponential
 
-Tips:
-  - background={false} on <Environment> gives reflections without visible background.
-  - Match fog color to background — mismatch breaks immersion.
-  - For outdoor scenes: Sky + directionalLight with shadows.
+LIGHTFORMERS (custom area lights in env):
+  <Environment background={false}>
+    <Lightformer position={[5, 5, -5]} scale={[10, 5, 1]} intensity={2} color="#ff8866" />
+    <Lightformer position={[-5, 0, 0]} scale={[1, 10, 1]} intensity={1} color="#88aaff" />
+  </Environment>
+
+TIPS:
+  - background={false} on Environment gives reflections without visible background.
+  - Match fog color to background — mismatch immediately reads as unfinished.
+  - For outdoor scenes: Sky + directional light with shadows.
   - For indoor scenes: Environment preset="apartment" + spot lights.
 `.trim(),
 
   scenes: `
 SCENE ENVIRONMENT PROFILES FOR R3F:
 
-Choose the environment profile that matches the project type. The scaffold_project tool
-applies these automatically — use this reference when generating standalone components.
+The scaffold_project tool applies these automatically. Use this for manual setup or inject_code.
 
 ────────────────────────────────────────────────────
-SPACE (solar system, planets, asteroids, spacecraft)
+SPACE (solar, planets, asteroids, cosmic, galaxy)
 ────────────────────────────────────────────────────
 Background:  #000000  |  Fog: near=50 far=200
 Ground:      NONE — never put a ground plane in space
-Lighting:    ambientLight intensity 0.05; pointLight for the star (no decay)
+Lighting:    ambientLight intensity 0.05; pointLight for the star (decay=0, no falloff)
 Atmosphere:  <Stars radius={300} depth={60} count={10000} factor={7} saturation={0} />
 Camera:      [0, 15, 30]  fov 50
-Post:        Bloom (luminanceThreshold 0.1, high intensity) for glowing bodies
-Colors:      Black, deep blues, bright whites, warm oranges/yellows for stars
-Avoid:       White background, ground plane, warm ambient, any fog matching ground
+Post:        Bloom (luminanceThreshold 0.1, high intensity) — feed with color={[5,3,0]} materials
+Colors:      Black, deep purple/blue, bright white for stars, orange/yellow for stars
 
 ──────────────────────────────────────────────────────
-UNDERWATER (ocean, sea, aquatic, coral, marine life)
+UNDERWATER (ocean, sea, aquatic, coral, marine)
 ──────────────────────────────────────────────────────
-Background:  #0a2a3a  |  Fog: near=1 far=30  (heavy — this sells the depth)
+Background:  #0a2a3a  |  Fog: near=1 far=30 — heavy fog sells the depth
 Ground:      Sandy sea floor (#c4a882)
 Lighting:    Directional from above with blue-green tint (#6af0ff), low ambient
 Camera:      [0, 2, 8]  fov 60
 Post:        ChromaticAberration + Bloom for caustic glow
-Colors:      Deep teal (#0a2a3a), sandy beige (#c4a882), cyan (#6af0ff)
-Avoid:       Warm colors, bright ambient, clear visibility beyond fog range
 
 ─────────────────────────────────────────────────────────────────
-PRODUCT SHOWCASE (sneakers, watches, furniture, 3D configurators)
+PRODUCT SHOWCASE (sneakers, watches, furniture, configurators)
 ─────────────────────────────────────────────────────────────────
 Background:  #1a1a1a  |  No fog
 Ground:      ContactShadows instead of mesh floor
 Lighting:    Three-point studio (key warm, fill cool, rim back)
-Environment: <Environment preset="studio" /> for reflections
-Controls:    OrbitControls with maxPolarAngle=PI/2, constrained zoom
-Camera:      [0, 1, 5]  fov 40  (low fov = less distortion for products)
+Environment: <Environment preset="studio" />
+Camera:      [0, 1, 5]  fov 40  (low fov = less distortion)
 Post:        ToneMapping ACES_FILMIC + SMAA only — no Bloom (keeps edges crisp)
-Colors:      Neutral dark background, product colors per brief
-Avoid:       White/grey floor (use ContactShadows), bloom, fog
 
 ────────────────────────────────────────────────────────
-NATURE (forest, garden, landscape, terrain, trees, grass)
+NATURE (forest, garden, landscape, terrain, trees)
 ────────────────────────────────────────────────────────
-Background:  #c9e2f0 (sky blue)  |  Fog: near=10 far=100, color matches sky
+Background:  #c9e2f0 (sky blue)  |  Fog: near=10 far=100
 Ground:      Large grass plane (#4a7a3a) with receiveShadow
-Lighting:    Warm directional sun ([100, 50, 80]) + soft ambient
+Lighting:    Warm directional sun + soft ambient
 Atmosphere:  <Sky sunPosition={[100, 50, 80]} turbidity={0.1} />
 Environment: <Environment preset="forest" background={false} />
 Camera:      [0, 3, 15]  fov 60
-Post:        Minimal — ToneMapping ACES_FILMIC only
-Colors:      Sky blue, grass green (#4a7a3a), warm sun (#fff0c8), earth brown
-Avoid:       Dark backgrounds, neon colors, metallic surfaces
 
 ────────────────────────────────────────────────────────────────
-INTERIOR (room, apartment, office, museum, gallery, architecture)
+INTERIOR (room, apartment, office, gallery, museum)
 ────────────────────────────────────────────────────────────────
 Background:  #1a1510  |  No fog
 Ground:      Wooden/concrete floor (#8a7060) with receiveShadow
 Lighting:    Warm spot lights (color #ffd080) + very low ambient
 Environment: <Environment preset="apartment" background={false} />
-Camera:      [0, 1.6, 5]  fov 60  (eye level — 1.6m = human height)
-Controls:    OrbitControls target=[0, 1, 0], maxPolarAngle=PI/2
-Post:        AccumulativeShadows for soft realistic baked shadows
-Colors:      Warm whites (#fff8f0), wood tones, warm light (#ffd080)
-Avoid:       Sky, outdoor elements, low ambient making everything flat
+Camera:      [0, 1.6, 5]  fov 60  — eye level (1.6m = human height)
 
 ──────────────────────────────────────────────────────────────────────
-GAME (shooter, platformer, racing, RPG, battle, arcade, dungeon)
+GAME (shooter, platformer, racing, RPG, battle, arcade)
 ──────────────────────────────────────────────────────────────────────
 Background:  #0a0a1a  |  Fog: near=20 far=80
-Ground:      Dark game floor (#0f0f22) with receiveShadow
+Ground:      Dark game floor (#0f0f22)
 Lighting:    Strong directional (shadows) + colored point lights for drama
-Camera:      [0, 8, 12]  fov 65  (elevated for overview)
+Camera:      [0, 8, 12]  fov 65 (elevated for overview)
 Post:        Bloom (intensity 0.5) + Vignette
-Colors:      Dark navy, electric blue, danger red, glowing cyan
-Avoid:       Bright ambient (kills drama), pastel colors, white background
 
 ─────────────────────────────────────────────────────────────────────────────
-ABSTRACT / GENERATIVE / ART (installation, immersive, dream, psychedelic)
+ABSTRACT / GENERATIVE / ART (installation, immersive, dream)
 ─────────────────────────────────────────────────────────────────────────────
 Background:  #0a0a0a  |  Fog: near=5 far=50
 Ground:      NONE — things float in void
 Lighting:    Colored point lights only (magenta, cyan, green) — no ambient
-Controls:    OrbitControls with autoRotate for gallery feel
-Camera:      [0, 0, 10]  fov 60
-Post:        HEAVY — Bloom (high intensity) + ChromaticAberration + Vignette
-Colors:      Pure black base, saturated neons: magenta (#ff4488), cyan (#44ffaa)
-Avoid:       Ground plane, ambient light, naturalistic colors
+Controls:    autoRotate for gallery feel
+Post:        HEAVY — Bloom + ChromaticAberration + Vignette
 
-──────────────────────────────────────────────────────────────────────────────────
-PORTFOLIO / WEBSITE (personal site, landing page, hero section, CV)
-──────────────────────────────────────────────────────────────────────────────────
-Background:  #0f0f0f  |  Fog: near=10 far=50
-Ground:      NONE — objects float
-Lighting:    Clean professional; supplement with Environment preset="city"
-Environment: <Environment preset="city" background={false} />
-Camera:      [0, 0, 10]  fov 50
-Controls:    OrbitControls enableZoom=false (don't let users break the layout)
-Post:        Subtle — ToneMapping ACES_FILMIC + SMAA only
-Colors:      Near-black base, brand accent colors, clean silvers
-Avoid:       Autorotate by default, garish effects, ground plane, fog too heavy
-
-────────────────────────────────
-THE RULES (apply to all scenes)
-────────────────────────────────
+THE FOUR UNIVERSAL RULES:
 1. Background is NEVER #ffffff. Minimum dark neutral: #1a1a2e.
-2. Fog color ALWAYS matches background color exactly.
+2. Fog color ALWAYS matches background exactly.
 3. Space scenes NEVER get a ground plane.
 4. ambientLight alone makes scenes flat — always pair with directional/spot.
-5. emissive materials need Bloom to actually glow — without it they just look bright.
-6. Camera fov: 30–40 for products/architectural, 50–60 for general, 65–90 for games/VR.
+`.trim(),
+
+  architecture: `
+ARCHITECTURE & MENTAL MODEL FOR R3F:
+
+LAYERED ARCHITECTURE (outside in):
+  DOM layer      — Framer Motion / Tailwind for chrome (nav, filters, overlays, control bars).
+  Scene layer    — <Canvas>, camera rig, global lighting, <ScrollControls> or <View.Port />.
+  Object layer   — per-mesh useFrame loops that mutate refs (position, scale, opacity, uniforms).
+  Shader layer   — raw GLSL or TSL. React owns structure, GLSL owns pixels.
+
+SINGLE-CANVAS RULE: Browsers cap WebGL contexts (~8).
+  NEVER: spin up multiple <Canvas> instances.
+  INSTEAD: Drei <View> + <View.Port /> OR r3f-scroll-rig GlobalCanvas + UseCanvas tunnel.
+
+ANIMATION THROUGH REFS, NOT STATE:
+  FREE:    meshRef.current.position.x = newVal  (no reconciliation)
+  COSTLY:  setState(newVal) → React reconciles → kills frame rate
+  STATE:   Use only for structural changes (mount/unmount, scene swaps, material changes).
+
+STATE MANAGEMENT (pmndrs stack):
+  zustand  — module-level, immutable, selector-based. DEFAULT CHOICE for game state, UI state.
+  jotai    — atom-based, component scope. Good for derived/computed state.
+  valtio   — proxy-based, mutate directly. Best for data-heavy configurators.
+  Select slices: useStore(state => state.x) not useStore() to avoid unnecessary re-renders.
+
+KEY R3F HOOKS:
+  useThree()          — { gl, scene, camera, size, viewport, invalidate, get, set }
+  useFrame(cb, prio)  — render loop; priority controls order (lower = earlier)
+  useLoader(Loader, url) — cached loading, Suspense-compatible
+  useGraph(object)    — traverse GLTF node graph by name
+  extend({ MyClass }) — register Three.js class as JSX element
+
+CANVAS CONFIG FOR POSTPROCESSING:
+  <Canvas gl={{ antialias: false, stencil: false, depth: false }}>
+  Let the EffectComposer handle AA via <SMAA /> — disabling defaults avoids redundant passes.
+`.trim(),
+
+  scroll: `
+SCROLL-DRIVEN SCENES IN R3F:
+
+APPROACH 1 — Drei ScrollControls (single-canvas, simplest):
+  <ScrollControls pages={3} damping={0.3}>
+    <Scene />
+    <Scroll html><div>HTML scrolls in lockstep</div></Scroll>
+  </ScrollControls>
+  const scroll = useScroll()  // inside ScrollControls
+  scroll.offset            // 0–1 normalized scroll position
+  scroll.range(0, 0.3)     // 0–1 within a range of the scroll
+  scroll.curve(0, 0.3)     // 0–1 with ease in+out
+  scroll.visible(0, 0.3)   // boolean: is this range visible?
+
+APPROACH 2 — GSAP Timeline + useScroll().seek() (most control):
+  const tl = useRef()
+  const scroll = useScroll()
+  useLayoutEffect(() => {
+    tl.current = gsap.timeline()
+    tl.current.to(ref.current.position, { y: -5, duration: 2 }, 0)
+    tl.current.to(ref.current.rotation, { y: Math.PI, duration: 1 }, 1)
+    tl.current.to(material, { opacity: 0, duration: 0.5 }, 1.5)
+  }, [])
+  useFrame(() => tl.current.seek(scroll.offset * tl.current.duration()))
+
+APPROACH 3 — r3f-scroll-rig (DOM-tracked, HTML-first sites):
+  <GlobalCanvas />   — single persistent canvas across route changes
+  <SmoothScrollbar /> — Lenis under the hood
+  <ScrollScene track={domRef}> — tunnel WebGL to match DOM element position/scale
+  useTracker() / useScrollbar() / useScrollRig() — low-level hooks
+
+LENIS SMOOTH SCROLL (standalone):
+  import { addEffect } from '@react-three/fiber'
+  import Lenis from 'lenis'
+  const lenis = new Lenis()
+  addEffect((t) => lenis.raf(t))  // sync R3F and Lenis clocks
+
+DREI VIEW / VIEW.PORT (multi-region, one canvas):
+  DOM: <div ref={trackRef}><View track={trackRef}><Mesh3D /></View></div>
+  Canvas: <Canvas><View.Port /></Canvas>
+  Each View gets its own camera and scene but shares the WebGL context.
+  Note: useFrame does NOT work inside View children — use useThree with scene outside.
+
+GSAP SCROLLTRIGGER (DOM scroll with 3D):
+  gsap.registerPlugin(ScrollTrigger)
+  gsap.to(ref.current.rotation, {
+    y: Math.PI * 2, ease: 'none',
+    scrollTrigger: { trigger: '#section', start: 'top center', end: 'bottom center', scrub: true }
+  })
+`.trim(),
+
+  models: `
+MODELS, ASSETS & LOADING IN R3F:
+
+GLTFJSX WORKFLOW (the canonical approach):
+  npx gltfjsx model.glb -t -s
+  Generates typed JSX with named nodes and materials.
+  Edit it like regular JSX: swap materials, animate parts, conditionally render meshes.
+  useAnimations(animations, ref) from drei handles AnimationMixer automatically.
+
+COMPRESSION PIPELINE (10x size + 10x VRAM gains):
+  Geometry:  gltf-transform draco model.glb out.glb      (Draco compression)
+             OR Meshopt (faster decompression)
+  Textures:  gltf-transform optimize in.glb out.glb \\
+             --texture-compress ktx2 --compress draco
+  KTX2 modes:
+    UASTC  — normals, hero textures (quality-first)
+    ETC1S  — diffuse, secondary textures (size-first)
+  Configure decoders once globally:
+    dracoLoader.setDecoderPath('/draco/')
+    ktx2Loader.setTranscoderPath('/basis/')
+
+LOADING PATTERNS:
+  useGLTF('/model.glb')                        — cached, Suspense-compatible
+  useGLTF.preload('/model.glb')                — preload before mount (outside component)
+  useTexture('/tex.jpg')                       — cached texture
+  useLoader(THREE.AudioLoader, '/sound.mp3')   — any Three.js loader
+  <Suspense fallback={<Loader />}>             — Drei's <Loader /> is polished default
+  Lazy-load below fold: React.lazy + dynamic import for <Canvas>
+
+ENVIRONMENT / HDRI:
+  useEnvironment({ preset: 'city' })           — preload before render
+  Free HDRIs: polyhaven.com/hdris (1K for realtime, use 4K only for baking)
+
+GAUSSIAN SPLATTING:
+  <Splat src='/scene.splat' />                 — Drei built-in
+  Photogrammetry scenes as .splat or .ply. Pair with <Float> for ambient motion.
+
+PERFORMANCE:
+  useGLTF caches by URL — import once, reference everywhere.
+  Clone with <Clone object={nodes.Mesh} /> for cheap duplication without re-loading.
+  <Sampler> distributes instances across mesh surfaces (grass, fur, moss).
+`.trim(),
+
+  libraries: `
+COMPANION LIBRARY STACK FOR R3F:
+
+PMNDRS CORE:
+  @react-three/drei         — helpers, materials, controls, staging (the essential one)
+  @react-three/postprocessing — effects composer (v3 for R3F v9 / React 19)
+  @react-three/rapier       — physics (v2 for R3F v9 / React 19)
+  @react-three/uikit        — Yoga flexbox WebGL UI components, fully animatable
+  @react-three/offscreen    — render canvas in a Web Worker (perf isolation)
+  @react-three/flex         — flexbox layout in 3D space
+  @react-three/xr           — WebXR (VR/AR) support
+  @react-three/lightmap     — runtime lightmap baking
+
+ANIMATION:
+  @react-spring/three       — physics-based springs, declarative API, BEST for hover/click
+  framer-motion-3d          — Framer Motion API for 3D (<motion.mesh>)
+  gsap + gsap/ScrollTrigger — timeline-based, industry standard for scroll sequences
+  theatre.js (@theatre/core + @theatre/r3f) — keyframe editor with visual Studio panel
+
+MATH / UTILITIES:
+  maath                     — easing (damp, damp3, dampE), random distributions, vector helpers
+  miniplex                  — entity-component-system for game-ish architectures
+  use-gesture               — pointer/touch/drag gestures (@use-gesture/react)
+  leva                      — instant GUI controls (sliders, pickers, folders) for dev
+
+SCROLLING & LAYOUT:
+  lenis                     — smooth scroll (addEffect to sync with R3F)
+  @14islands/r3f-scroll-rig — DOM-tracked WebGL, GlobalCanvas, ScrollScene, useTracker
+
+SHADERS & FX:
+  lygia / resolve-lygia     — massive GLSL function library (#include "lygia/generative/…")
+  glslify + glsl-noise      — modular GLSL imports
+  meshline                  — billboarded line (variable width, smooth curves)
+  @funtech-inc/use-shader-fx — fluid sims, distortion, ripple effects as React hooks
+
+MODELING & RAYCASTING:
+  three-mesh-bvh (via drei <Bvh>) — 100x faster raycasting on complex meshes
+  camera-controls             — used inside drei <CameraControls>, can be used directly
+
+PARTICLES & VFX:
+  wawa-vfx                  — <VFXParticles> + <VFXEmitter>, GPU-accelerated
+  three.quarks + quarks.r3f  — Unity-shuriken emitters, SizeOverLife, ColorOverLife
+
+MONITORING:
+  r3f-perf                  — overlay: draw calls, vertices, GPU timing, shader count
+  stats-gl / stats.js       — frame timing overlay
+
+CURRENT VERSION BASELINE (mid-2026):
+  react / react-dom         ^19.0.0
+  three                     ^0.184.0
+  @react-three/fiber        ^9.0.0
+  @react-three/drei         ^10.0.0
+  @react-three/postprocessing ^3.0.0 (+ postprocessing ^6.36.0)
+  @react-three/rapier       ^2.0.0  (+ @dimforge/rapier3d-compat ^0.19.0)
+`.trim(),
+
+  effects: `
+CREATIVE EFFECT INVENTORY (30+ concrete recipes):
+
+REVEALS & TRANSITIONS:
+  Image reveal on scroll     — shaderMaterial plane, Perlin noise + radial gradient mask,
+                               drive uProgress 0→1; vertex sine wave fades with progress.
+  Page transition wipe       — fullscreen quad, threshold noise + displacement, GSAP.
+  Morph reveal               — mesh morph targets, useAnimations or morphTargetInfluences[i].
+
+SCROLL EXPERIENCES:
+  Infinite 3D image tube     — cylindrical layout, shader curvature deformation, inertial velocity uniform.
+  Scroll-driven cinematic    — GSAP timeline + seek(scroll.offset), choreographing camera + lights + morphs.
+  Submarine / character ride — water shader (vertex wave + fragment ripple) + mouse uMouse uniform.
+  Office walkthrough         — single GLB, scroll-driven y-translation + rotation (Wawa Sensei pattern).
+
+PRODUCT & SHOWCASE:
+  Curved 3D product grid     — planes on cylinder slice, holographic sheen via fresnel, spring-damped hover.
+  WebGL carousel             — planes along x, uniform thickness/distortion tied to scroll velocity.
+  3D lens distortion         — sphere with MeshTransmissionMaterial tracking pointer (refracts page behind).
+  Holographic card           — iridescent gradient plane, fresnel sheen offset by view direction.
+
+ATMOSPHERE & ENVIRONMENT:
+  Procedural galaxy          — points buffer, polar coordinates with arm offsets, additive blending + bloom.
+  Volumetric clouds          — 3D Perlin/FBM + ray march, density accumulated into alpha.
+  Topographic background     — simplex contour bands, great for grids and product backdrops.
+  Magic sparkles             — drei <Sparkles> + selective bloom.
+
+SHADERS & MATERIALS:
+  Iridescent crystal         — SDF (octahedron) raymarching, refraction per-channel IOR, env lookup.
+  Caustics                   — render light through refractive mesh into FBO, splat onto plane as texture.
+  Liquid raymarching         — fullscreen quad, SDF smoothMin of spheres, diffuse + specular + fresnel.
+  Goo / metaballs            — drei <MarchingCubes> + MeshTransmissionMaterial.
+  Holographic sheen          — custom shader: fresnel + scrolling iridescent HSL gradient + view direction.
+  ASCII / dithering          — drei <AsciiRenderer> or custom ordered-dither postprocess effect.
+
+INTERACTIVITY:
+  Hover-reactive surface     — pass uMouse to noise displacement, spring-damped return.
+  Drag-to-reveal             — raycasting intersection, animate uProgress based on drag distance.
+  Click impulse              — Rapier applyImpulse on physics body, visual spring feedback.
+  Mouse trail                — Trail component or custom FBO particle system following pointer.
+
+PARTICLES:
+  Swirling particle flow     — curl noise FBO (divergence-free → no clumping).
+  Firefly / dust             — slow sin-based movement, random seed offsets, additive blending.
+  Constellation              — star positions from image luminance, lines connecting proximity pairs.
+
+AUDIO-REACTIVE:
+  Waveform mesh              — AnalyserNode data → morphTargetInfluences or vertex displacement.
+  Beat-sync scale            — audio amplitude → spring target scale on beat detection.
+
+REFERENCE SITES (for "make it look like X"):
+  Bruno Simon's Three.js Journey — gold-standard foundational R3F patterns.
+  Maxime Heckel's blog           — deep-dive shaders: caustics, refraction, FBO, raymarching.
+  Codrops (tympanus.net)         — image reveals, tubes, carousels, transmission tricks; always current.
+  Wawa Sensei                    — scroll, physics, postprocessing, VFX, WebGPU/TSL, GPGPU.
+  Pmndrs sandbox (drcmda)        — Paul Henschel's lens, transmission, instancing, physics demos.
+  Shadertoy                      — fragment shader inspiration; port via <ScreenQuad>.
+  Inigo Quilez (iquilezles.org)  — SDF math, raymarching, color palettes — bedrock for procedural work.
+`.trim(),
+
+  heuristics: `
+MCP TOOL GENERATION HEURISTICS (defaults for every component Claude generates):
+
+ALWAYS:
+  ✓ Wrap asset-loading in <Suspense>. <Suspense fallback={<Loader />}> is safe everywhere.
+  ✓ Set a <color attach="background"> or Environment background. Never leave the canvas void.
+  ✓ Use ACES_FILMIC ToneMapping as the LAST effect in every EffectComposer.
+  ✓ Multiply by delta in useFrame: rotation.y += delta * speed (never +=0.01).
+  ✓ Use damp/damp3 from maath for smooth frame-rate-independent following.
+  ✓ Use <Environment preset="city" background={false} /> as the default for any PBR scene.
+  ✓ Declare OrbitControls with makeDefault so controls and cameras sync.
+  ✓ Use meshStandardMaterial with explicit metalness + roughness (never meshBasicMaterial for lit objects).
+  ✓ Include receieveShadow + castShadow on relevant meshes when shadows are in the scene.
+  ✓ Wrap objects in <group> for clean transform management.
+
+FOR BLOOM:
+  ✓ Default luminanceThreshold={1}, not threshold=0 (global glow looks cheap).
+  ✓ Lift material colors above 1.0: color={[5, 2, 0]} on meshBasicMaterial to feed selective bloom.
+  ✓ ALWAYS enable mipmapBlur — without it bloom looks harsh.
+
+FOR COUNTS > ~20 OF THE SAME GEOMETRY:
+  ✓ Default to <instancedMesh> (or drei <Instances>). Never individual <mesh> in a .map().
+  ✓ Low-poly for particle instances: sphereGeometry [r, 6, 6] not [r, 32, 32].
+
+FOR FRAMELOOP:
+  ✓ Default to frameloop="demand" + invalidate() when no continuous animation is described.
+  ✓ frameloop="always" only when continuous animation is explicitly needed.
+
+FOR "WOW" REQUESTS — layer these five:
+  HDRI environment + Bloom + SoftShadows/AccumulativeShadows + MeshTransmissionMaterial + Sparkles/Trail
+  The combination creates "awe" — any one alone is good, all five together is cinematic.
+
+PREFER DREI PRE-BUILT over hand-rolled:
+  MeshTransmissionMaterial > transparent meshPhysicalMaterial for glass
+  MeshReflectorMaterial > custom mirror shader
+  ContactShadows > manual shadow plane
+  <Float> > manual sin bobbing
+  <Trail> > custom trail system
+  useAnimations > manual AnimationMixer
+
+SCROLL CHOREOGRAPHY:
+  Prefer GSAP timeline + seek(scroll.offset) over manual math for anything with >2 animated values.
+  Prefer Drei ScrollControls + useScroll() for single-canvas scroll scenes.
+
+NEVER:
+  ✗ setState inside useFrame (reconciliation kills frame rate).
+  ✗ new THREE.Vector3() inside useFrame (allocates every frame).
+  ✗ White (#ffffff) or near-white background — minimum dark neutral #1a1a2e.
+  ✗ meshBasicMaterial for objects that should react to lighting.
+  ✗ ambientLight alone — always pair with at least one directional/spot.
+  ✗ Multiple <Canvas> instances — use <View> + <View.Port /> instead.
+  ✗ High segment counts for small particles: not sphereGeometry [r, 32, 32].
+  ✗ Bloom luminanceThreshold < 0.5 for general use (everything glows → nothing glows).
+`.trim(),
+
+  webgpu: `
+WEBGPU & TSL (Three Shader Language) — THE FUTURE:
+
+TSL compiles to WGSL (WebGPU) AND GLSL (WebGL). Write once, run on both.
+R3F v10 alpha + Drei v11 alpha track WebGPU. Import from three/tsl and three/webgpu.
+
+SETUP:
+  import { WebGPURenderer } from 'three/webgpu'
+  // In R3F: <Canvas gl={(canvas) => new WebGPURenderer({ canvas })} />
+  // Fallback: forceWebGL: true to test the GLSL path
+
+TSL IMPORTS (three/tsl):
+  Math/flow: Fn, float, vec2, vec3, vec4, int, bool, If, Loop, Return
+  Values:    uniform, attribute, varying, const
+  Built-ins: time, uv, positionLocal, positionWorld, normalLocal, normalWorld,
+             viewDirection, cameraPosition, modelViewMatrix, projectionMatrix
+  Noise:     mx_noise_float, mx_fractal_noise_float, mx_noise_vec3
+  Math:      sin, cos, abs, max, min, mix, step, smoothstep, clamp, pow, sqrt, length, dot, cross, normalize, saturate
+
+TSL MATERIAL NODE EXAMPLE:
+  import { color, sin, time, mx_fractal_noise_float, Fn, vec3, positionLocal } from 'three/tsl'
+  import { MeshStandardNodeMaterial } from 'three/webgpu'
+
+  const fresnel = Fn(([n, v, p]) => float(1).sub(n.dot(v).saturate()).pow(p))
+
+  const mat = new MeshStandardNodeMaterial()
+  mat.colorNode = color(1, 0, 0).mul(sin(time).mul(0.5).add(0.5))
+  mat.positionNode = positionLocal.add(vec3(0, mx_fractal_noise_float(positionLocal.mul(2)), 0))
+  mat.emissiveNode = fresnel(normalWorld, viewDirection, float(3)).mul(color(0.2, 0.5, 1))
+
+COMPUTE SHADERS (GPU particles, physics, fluid):
+  import { instancedArray, compute, instanceIndex, storage } from 'three/tsl'
+  const positions = instancedArray(count, 'vec3')
+  const velocities = instancedArray(count, 'vec3')
+  const updatePhysics = compute(() => {
+    const pos = positions.element(instanceIndex)
+    const vel = velocities.element(instanceIndex)
+    pos.assign(pos.add(vel.mul(time.fwidth())))
+  }, count)
+  renderer.compute(updatePhysics)  // dispatch each frame
+
+STORAGE TEXTURES (fluid sims, image processing):
+  import { storageTexture, textureStore } from 'three/tsl'
+  const tex = storageTexture(width, height)
+  textureStore(tex, uv, value)   // write
+  texture(tex, uv)               // read
+
+INSTANCED ARRAY (persistent GPU buffer, replaces CPU instancedMesh):
+  const offsets = instancedArray(count, 'vec3')
+  // Fill from JS: offsets.array[i] = new THREE.Vector3(…)
+  // Or fill from compute shader — stays on GPU entirely
+
+RENDERER API CHANGES:
+  await renderer.init()                    // required before first render
+  renderer.renderAsync(scene, camera)      // async for compute-heavy scenes
+  renderer.compute(computeNode)            // dispatch compute shader
+
+STATUS (mid-2026):
+  WebGPU ships in Chrome 113+, Firefox Nightly, Safari 18+.
+  R3F v10 + Drei v11 are in alpha — use for new greenfield WebGPU projects.
+  Stick with R3F v9 + WebGL for production until v10 is stable.
 `.trim(),
 
 };

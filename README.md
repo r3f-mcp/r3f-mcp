@@ -87,7 +87,7 @@ Restart your AI tool, then try the prompts below.
 
 ---
 
-## Create with AI — live component injection *(v0.4)*
+## Create with AI — live component injection *(v0.4+)*
 
 r3f-mcp isn't just an inspector — it's a creative engine. Describe what you want and watch it appear in your browser in real time.
 
@@ -169,9 +169,21 @@ Claude modifies the code and re-injects, replacing the previous version.
 > "Before generating this component, check r3f_reference for materials and lighting tips"
 ```
 
-Covered topics: `materials` · `lighting` · `animation` · `post-processing` · `camera` · `physics` · `particles` · `text` · `shaders` · `performance` · `composition` · `interactivity` · `audio` · `environment` · `scenes`
+**22 topics across three tiers:**
 
-The `scenes` topic documents all 8 environment profiles (space, underwater, product, nature, interior, game, abstract, portfolio) with their exact camera positions, lighting setups, background colors, and four universal rules — the same profiles `scaffold_project` uses automatically.
+*Core craft* — `materials` · `lighting` · `animation` · `post-processing` · `camera` · `shaders` · `particles` · `performance`
+
+*Scene building* — `composition` · `environment` · `scenes` · `scroll` · `models` · `physics` · `interactivity` · `audio` · `text`
+
+*Production* — `architecture` · `libraries` · `effects` · `webgpu` · `heuristics`
+
+**Key topics:**
+- `heuristics` — MCP-specific generation defaults: when to use bloom, instancedMesh, frameloop="demand", ACES filmic, Drei pre-built materials. Read this before every component generation.
+- `scenes` — All 8 environment profiles (space, underwater, product, nature, interior, game, abstract, portfolio) with exact camera positions, lighting, background colors, and the four universal rules.
+- `effects` — 30+ concrete creative effect recipes: galaxy, metaballs, caustics, holographic cards, scroll reveals, audio-reactive meshes, and reference sites.
+- `architecture` — Layer model, single-canvas rule, animation-through-refs principle, state management options.
+- `webgpu` — TSL (Three Shader Language), compute shaders, `instancedArray`, storage textures.
+- `libraries` — Full companion stack with current version baseline (React 19, fiber v9, drei v10).
 
 Each topic contains pro tips, code recipes, and common pitfalls — the difference between a flat grey sphere and a properly lit, physically-based, animated scene.
 
@@ -208,7 +220,7 @@ Warnings are returned to Claude so it can self-correct before the component is c
 | `get_physics` | v0.3 | `identifier?` | Read Rapier rigid body / collider / joint state (requires `useRegisterPhysics`) |
 | `get_performance` | v0.3 | — | Current FPS, draw calls, triangle count, memory |
 | `get_performance_profile` | v0.3 | `duration?` | Profile for N seconds; returns min/max/p99 FPS, heaviest meshes, recommendations |
-| `r3f_reference` | v0.4 | `topics` | Embedded expert knowledge base — materials, lighting, animation, shaders, and more. Add `"scenes"` for environment profiles (space, underwater, product, nature, interior, game, abstract, portfolio). |
+| `r3f_reference` | v0.4 | `topics` | 22-topic embedded knowledge base. Covers materials, lighting, animation, post-processing, shaders, particles, performance, scroll, models, physics, architecture, effects (30+ recipes), libraries, webgpu/TSL, and `heuristics` (generation defaults). Call before every component generation. |
 | `generate_component` | v0.4 | `description`, `name`, `position?`, `preview?` | Scene-aware component generation with quality guidelines baked in |
 | `inject_code` | v0.4 | `code`, `name?`, `replace?` | Live JSX injection with quality validation. Errors returned for self-correction. |
 | `commit_component` | v0.4 | `name`, `directory?`, `filename?` | Save a live-preview injection to a `.tsx` file on disk |
