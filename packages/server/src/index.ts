@@ -25,6 +25,7 @@ import { controlAnimationTool, controlAnimationSchema, handleControlAnimation } 
 import { getPhysicsTool,       getPhysicsSchema,       handleGetPhysics       } from './tools/getPhysics.js';
 import { getPerformanceTool,   getPerformanceSchema,   handleGetPerformance   } from './tools/getPerformance.js';
 import { getPerformanceProfileTool, getPerformanceProfileSchema, handleGetPerformanceProfile } from './tools/getPerformanceProfile.js';
+import { r3fReferenceTool, r3fReferenceSchema, handleR3FReference } from './tools/r3fReference.js';
 import { generateComponentTool, generateComponentSchema, handleGenerateComponent } from './tools/generateComponent.js';
 import { injectCodeTool,         injectCodeSchema,        handleInjectCode         } from './tools/injectCode.js';
 import { commitComponentTool,    commitComponentSchema,   handleCommitComponent    } from './tools/commitComponent.js';
@@ -71,6 +72,7 @@ const ALL_TOOLS = [
   getPerformanceTool,
   getPerformanceProfileTool,
   // v0.4 — live injection & code generation
+  r3fReferenceTool,
   generateComponentTool,
   injectCodeTool,
   commitComponentTool,
@@ -87,7 +89,7 @@ async function main(): Promise<void> {
   const manager = new WebSocketManager({ port });
 
   const mcpServer = new Server(
-    { name: 'r3f-mcp', version: '0.4.0' },
+    { name: 'r3f-mcp', version: '0.4.1' },
     {
       capabilities: { tools: {} },
       instructions:
@@ -109,6 +111,11 @@ async function main(): Promise<void> {
       switch (name) {
 
         // ── v0.1 ─────────────────────────────────────────────────────────────
+
+        case 'r3f_reference': {
+          const args = r3fReferenceSchema.parse(rawArgs);
+          return await handleR3FReference(args);
+        }
 
         case 'scene_graph': {
           const args = sceneGraphSchema.parse(rawArgs);

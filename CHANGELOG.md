@@ -2,6 +2,84 @@
 
 All notable changes to this project will be documented here.
 
+## [0.4.1] — 2026-05-01
+
+### Quality enhancements & generation improvements
+
+#### New tool: `r3f_reference`
+
+An embedded expert knowledge base that Claude reads before generating components. No network fetch — all content is hardcoded in the tool. Covers 14 topics with pro tips, code recipes, and common pitfalls:
+
+| Topic | What it covers |
+|---|---|
+| `materials` | `meshStandardMaterial` defaults, glass/crystal with `MeshTransmissionMaterial`, emissive glow, metalness/roughness recipes |
+| `lighting` | Three-point setup, environment presets, shadow configuration, `ContactShadows`, color temperature |
+| `animation` | Delta-time independence, floating/bobbing patterns, spring animations, `useFrame` recipes, `<Float>` |
+| `post-processing` | Bloom with `mipmapBlur`, cinematic/neon/dreamy recipes, ACES tone mapping, SMAA |
+| `camera` | Position presets, `OrbitControls`/`PresentationControls`, animated camera paths, fov guide |
+| `physics` | Rapier setup, body types, impulse, sensors, `useRegisterPhysics` |
+| `particles` | `Points` for 5K+, `instancedMesh` with animation, additive blending, `<Sparkles>` |
+| `text` | `Text3D`, billboard `<Text>`, `<Html>` overlays |
+| `shaders` | `shaderMaterial` + `extend`, common GLSL patterns, `onBeforeCompile` |
+| `performance` | Draw call budgets, `instancedMesh`, geometry merging, `useFrame` allocation tips |
+| `composition` | Rule of thirds, depth layering, fog, camera height semantics, color palette |
+| `interactivity` | Hover with spring, drag, cursor change, raycasting optimization, `<Html>` tooltips |
+| `audio` | `PositionalAudio`, autoplay restrictions, Howler.js integration |
+| `environment` | `<Environment>` presets, `<Sky>`, `<Stars>`, reflective floor, fog matching |
+
+#### `inject_code` — quality validator
+
+Before sending code to the browser, `inject_code` now scans the source for five common issues and returns warnings alongside the injection result:
+
+| Rule | Trigger | Suggestion |
+|---|---|---|
+| `flat-material` | `meshBasicMaterial` on non-wireframe geometry | Switch to `meshStandardMaterial` with `metalness`/`roughness` |
+| `no-lighting` | No light or `Environment` reference in the component | Add ambient + directional light or `<Environment preset="studio" />` |
+| `no-delta` | `useFrame` mutates `.rotation`/`.position` without `delta` in the callback signature | Change to `(state, delta) =>` and multiply speeds by `delta` |
+| `loop-mesh` | `<mesh>` created inside a `.map()`, `for`, or `Array.from` | Use `<instancedMesh>` (single draw call for thousands of objects) |
+| `high-poly` | `<sphereGeometry>` with width or height segments > 24 | Reduce to 12×12 for small objects; high poly only needed for hero objects |
+
+Warnings are returned to Claude so it can self-correct before calling `commit_component`.
+
+#### `generate_component` — quality guidelines in context
+
+The prompt returned by `generate_component` now includes an explicit quality checklist that Claude reads before writing code:
+
+- Default to `meshStandardMaterial` with explicit `metalness`/`roughness`
+- Always use `delta` in `useFrame` for frame-rate independence
+- Use different `Math.sin`/`Math.cos` frequencies per axis for organic motion
+- For particles/repeated geometry: `instancedMesh` or `Points` only
+- Wrap objects in `<group>` for clean transform management
+- Use `useRef<THREE.Mesh>(null)` type annotations
+
+#### `scaffold_project` — `components` array input
+
+`scaffold_project` now accepts a `components` array so the entire project — boilerplate and all custom components — is written in a single tool call:
+
+```json
+{
+  "description": "a space shooter game",
+  "directory": "~/projects/space-shooter",
+  "components": [
+    { "name": "SpaceShip", "description": "Player ship", "code": "export default function SpaceShip() { ... }" },
+    { "name": "Asteroid",  "description": "Enemy rock",  "code": "export default function Asteroid() { ... }" }
+  ]
+}
+```
+
+Each component is written to `src/components/{Name}.tsx` and imported in the generated `App.tsx`. This eliminates the two-step workflow of scaffolding first and then separately writing or injecting components.
+
+#### `scaffold_project` & `commit_component` — unambiguous filesystem responses
+
+Both tools now return responses designed to prevent Claude from second-guessing what was written:
+
+- Absolute paths in every file reference (never relative)
+- `fs.existsSync` + `fs.statSync` verification with file sizes after writing
+- IMPORTANT directive at the end of each response explicitly instructing Claude not to recreate or re-display the files
+- `scaffold_project` resolves `~` and relative paths to absolute before any I/O, with a write-permission check on the parent directory before creating any files
+
+---
+
 ## [0.4.0] — 2026-05-01
 
 ### Live component injection — the creative engine

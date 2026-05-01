@@ -76,6 +76,21 @@ export async function handleGenerateComponent(
   const instructions = `
 Generate a React Three Fiber component and inject it into the running scene.
 
+═══ QUALITY GUIDELINES (follow these for every component) ════════════════════════
+• NEVER use meshBasicMaterial for visible objects — default to meshStandardMaterial.
+• Set metalness and roughness explicitly (e.g. metalness={0.8} roughness={0.2}).
+• Use delta-time multiplication in useFrame: rotation.y += delta * speed (frame-rate independence).
+• For interactive animations, use spring-style easing (lerp, MathUtils.damp) — never linear snaps.
+• Animate with different frequencies per axis (sin(t * 0.7), cos(t * 1.3)) for organic motion.
+• For particles or repeated objects, use instancedMesh or Points — never individual <mesh> in a loop.
+• For glow effects, set emissive + emissiveIntensity and let the scene's Bloom handle it.
+• Keep geometry detail proportional to object size — small objects: sphereGeometry args [r, 8, 8].
+• Add subtle motion variation (Math.random() seeds, offset phases) to avoid mechanical repetition.
+• Always use useRef, not useState, for values updated in useFrame.
+• Wrap objects in <group> for easy positioning and later transform edits.
+• Use useRef<THREE.Mesh>(null) type annotations for mesh refs.
+═══════════════════════════════════════════════════════════════════════════════════
+
 ═══ TASK ════════════════════════════════════════════════════════════════════════
 Name:        ${args.name}
 Position:    ${pos}
@@ -92,29 +107,38 @@ ${summary}
   three (as THREE). Do NOT import from @react-three/drei or any other package.
 • No required props — use sensible defaults
 • Position the component at ${pos} in the scene
-• Fit the visual style of the existing scene
+• Fit the visual style of the existing scene (see scene context above)
 • When done, call inject_code with:
     - code: the complete component source
     - name: "${args.name}"
     ${args.preview ? '(preview: true is default)' : ''}
 
-Example component shape:
+Example of a quality component:
 \`\`\`tsx
 export default function ${args.name}() {
   const ref = useRef<THREE.Mesh>(null);
-  useFrame((_, delta) => {
-    if (ref.current) ref.current.rotation.y += delta;
+  // Delta-time ensures frame-rate independence
+  useFrame((state, delta) => {
+    if (!ref.current) return;
+    const t = state.clock.elapsedTime;
+    ref.current.rotation.y += delta * 0.5;
+    // Different frequencies = organic, non-mechanical motion
+    ref.current.position.y = ${pos}[1] + Math.sin(t * 0.7) * 0.15;
+    ref.current.rotation.z = Math.sin(t * 0.3) * 0.05;
   });
   return (
-    <mesh ref={ref} position={${pos}}>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color="#888" metalness={0.8} roughness={0.2} />
-    </mesh>
+    <group position={${pos}}>
+      <mesh ref={ref} castShadow receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        {/* Standard material with explicit PBR values */}
+        <meshStandardMaterial color="#c0a060" metalness={0.4} roughness={0.3} />
+      </mesh>
+    </group>
   );
 }
 \`\`\`
 
-Now generate the ${args.name} component and inject it.
+Now generate the ${args.name} component following the quality guidelines above, then call inject_code.
 `.trim();
 
   return { content: [{ type: 'text', text: instructions }] };

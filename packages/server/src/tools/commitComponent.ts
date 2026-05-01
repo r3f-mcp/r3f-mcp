@@ -1,6 +1,6 @@
-import { mkdirSync, writeFileSync } from 'fs';
-import { join, basename } from 'path';
-import { z } from 'zod';
+import { mkdirSync, writeFileSync, existsSync, statSync } from 'fs';
+import { join, resolve, dirname, basename } from 'path';
+import { homedir } from 'os';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { WebSocketManager } from '../connection.js';
 import { CommitComponentInputSchema } from '../types.js';
@@ -14,17 +14,29 @@ export const commitComponentTool: Tool = {
   description:
     'Save a live-injected preview component to an actual file in the user\'s project. ' +
     'The component must have been injected with inject_code first. ' +
-    'Returns the file path, the import line, and a JSX usage snippet.',
+    'IMPORTANT: After this tool runs, do NOT present the file contents in chat. ' +
+    'The file has been written to disk — just tell the user the import line.',
   inputSchema: {
     type: 'object',
     properties: {
       name:      { type: 'string', description: 'Injection name to commit' },
-      directory: { type: 'string', description: 'Directory to save to (default: "./src/components")' },
+      directory: { type: 'string', description: 'Directory to save to (default: "./src/components"). Supports ~/...' },
       filename:  { type: 'string', description: 'Override filename (default: {Name}.tsx)' },
     },
     required: ['name'],
   },
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function resolveDir(raw: string): string {
+  const expanded = raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw;
+  return resolve(expanded);
+}
+
+function fmtSize(bytes: number): string {
+  return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+}
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
@@ -38,25 +50,45 @@ export async function handleCommitComponent(
   if (!entry) {
     throw new Error(
       `No injection named "${args.name}" found. ` +
-      `Available injections: ${[...connection.getInjectionRegistry().keys()].join(', ') || '(none)'}`,
+      `Available: ${[...connection.getInjectionRegistry().keys()].join(', ') || '(none)'}`,
     );
   }
 
-  const dir      = args.directory ?? './src/components';
-  const filename = args.filename  ?? `${args.name}.tsx`;
-  const filePath = join(dir, filename);
+  // Resolve to absolute path so the response is unambiguous
+  const dir      = resolveDir(args.directory ?? './src/components');
+  const filename = args.filename ?? `${args.name}.tsx`;
+  const absPath  = join(dir, filename);
   const stem     = basename(filename, '.tsx');
 
   mkdirSync(dir, { recursive: true });
-  writeFileSync(filePath, entry.code, 'utf8');
+  writeFileSync(absPath, entry.code, 'utf8');
 
-  const importLine = `import ${args.name} from '${dir.replace(/^\.\//, '')}/'\`${stem}\`'`;
-  const usage      = `<${args.name} />`;
+  // Verify it landed on disk
+  const exists = existsSync(absPath);
+  const size   = exists ? statSync(absPath).size : 0;
+  const verification = exists
+    ? `✓ ${absPath} (${fmtSize(size)})`
+    : `✗ File not found after write — possible permission error`;
 
-  const text =
-    `✓ Saved to ${filePath}\n\n` +
-    `Import:  import ${args.name} from './${join(dir, stem).replace(/\\/g, '/')}'\n` +
-    `Usage:   ${usage}`;
+  // Derive a clean relative import path for the user
+  const importPath = `./${dir.replace(/\\/g, '/').replace(/^\.\//, '')}/${stem}`;
+  const importLine = `import ${args.name} from '${importPath}'`;
+
+  const text = [
+    `✅ File saved to the user's local machine.`,
+    ``,
+    `  ${verification}`,
+    ``,
+    `Import line:`,
+    `  ${importLine}`,
+    ``,
+    `Usage:`,
+    `  <${args.name} />`,
+    ``,
+    `IMPORTANT: This file has been written directly to the user's local filesystem`,
+    `at ${absPath}. Do NOT present this file in chat or attempt to rewrite it.`,
+    `It already exists. Tell the user the file has been saved and provide the import line.`,
+  ].join('\n');
 
   return { content: [{ type: 'text', text }] };
 }

@@ -719,10 +719,16 @@ export type CommitComponentInput = z.infer<typeof CommitComponentInputSchema>;
 
 export const ScaffoldProjectInputSchema = z.object({
   description: z.string().describe('What to build, e.g. "a space shooter game"'),
-  directory:   z.string().describe('Where to create the project'),
+  directory:   z.string().describe('Where to create the project. Supports ~ for home directory.'),
   template:    z.enum(['game', 'showcase', 'portfolio', 'visualization', 'experience']).optional(),
   features:    z.array(z.string()).optional()
     .describe('Specific features, e.g. ["physics","postprocessing","sound"]'),
+  components:  z.array(z.object({
+    name:        z.string().describe('PascalCase component name, e.g. "SpaceShip"'),
+    description: z.string().describe('What this component does'),
+    code:        z.string().describe('Complete TSX source code for the component (default-exported function)'),
+  })).optional()
+    .describe('Pre-generated component files to write into src/components/. Generate these BEFORE calling scaffold_project so all files are written in a single tool call.'),
 });
 export type ScaffoldProjectInput = z.infer<typeof ScaffoldProjectInputSchema>;
 
