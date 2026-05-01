@@ -19,7 +19,18 @@ import { removeObjectTool,removeObjectSchema,handleRemoveObject} from './tools/r
 import { queryBoundsTool, queryBoundsSchema, handleQueryBounds } from './tools/queryBounds.js';
 import { queryDistanceTool,queryDistanceSchema,handleQueryDistance } from './tools/queryDistance.js';
 import { queryFrustumTool, queryFrustumSchema,handleQueryFrustum  } from './tools/queryFrustum.js';
-import { sceneDiffTool,   sceneDiffSchema,   handleSceneDiff   } from './tools/sceneDiff.js';
+import { sceneDiffTool,         sceneDiffSchema,         handleSceneDiff         } from './tools/sceneDiff.js';
+import { getAnimationsTool,    getAnimationsSchema,    handleGetAnimations    } from './tools/getAnimations.js';
+import { controlAnimationTool, controlAnimationSchema, handleControlAnimation } from './tools/controlAnimation.js';
+import { getPhysicsTool,       getPhysicsSchema,       handleGetPhysics       } from './tools/getPhysics.js';
+import { getPerformanceTool,   getPerformanceSchema,   handleGetPerformance   } from './tools/getPerformance.js';
+import { getPerformanceProfileTool, getPerformanceProfileSchema, handleGetPerformanceProfile } from './tools/getPerformanceProfile.js';
+import { generateComponentTool, generateComponentSchema, handleGenerateComponent } from './tools/generateComponent.js';
+import { injectCodeTool,         injectCodeSchema,        handleInjectCode         } from './tools/injectCode.js';
+import { commitComponentTool,    commitComponentSchema,   handleCommitComponent    } from './tools/commitComponent.js';
+import { scaffoldProjectTool,    scaffoldProjectSchema,   handleScaffoldProject    } from './tools/scaffoldProject.js';
+import { listInjectionsTool,     listInjectionsSchema,    handleListInjections     } from './tools/listInjections.js';
+import { removeInjectionTool,    removeInjectionSchema,   handleRemoveInjection    } from './tools/removeInjection.js';
 
 // ─── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -53,6 +64,19 @@ const ALL_TOOLS = [
   queryFrustumTool,
   // v0.2 — scene diffing
   sceneDiffTool,
+  // v0.3 — animation, physics, performance
+  getAnimationsTool,
+  controlAnimationTool,
+  getPhysicsTool,
+  getPerformanceTool,
+  getPerformanceProfileTool,
+  // v0.4 — live injection & code generation
+  generateComponentTool,
+  injectCodeTool,
+  commitComponentTool,
+  scaffoldProjectTool,
+  listInjectionsTool,
+  removeInjectionTool,
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -63,7 +87,7 @@ async function main(): Promise<void> {
   const manager = new WebSocketManager({ port });
 
   const mcpServer = new Server(
-    { name: 'r3f-mcp', version: '0.2.0' },
+    { name: 'r3f-mcp', version: '0.4.0' },
     {
       capabilities: { tools: {} },
       instructions:
@@ -168,6 +192,89 @@ async function main(): Promise<void> {
         case 'scene_diff': {
           const args = sceneDiffSchema.parse(rawArgs);
           return await handleSceneDiff(args, manager);
+        }
+
+        // ── v0.3: animation ───────────────────────────────────────────────────
+
+        case 'get_animations': {
+          const args   = getAnimationsSchema.parse(rawArgs);
+          const result = await handleGetAnimations(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        case 'control_animation': {
+          const args   = controlAnimationSchema.parse(rawArgs);
+          const result = await handleControlAnimation(args, manager);
+          return {
+            content: [{
+              type: 'text',
+              text: result.success
+                ? `Animation "${result.animation}" is now ${result.state} at ${result.currentTime.toFixed(3)}s`
+                : 'Failed to control animation',
+            }],
+          };
+        }
+
+        // ── v0.3: physics ─────────────────────────────────────────────────────
+
+        case 'get_physics': {
+          const args   = getPhysicsSchema.parse(rawArgs);
+          const result = await handleGetPhysics(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        // ── v0.3: performance ─────────────────────────────────────────────────
+
+        case 'get_performance': {
+          const args   = getPerformanceSchema.parse(rawArgs);
+          const result = await handleGetPerformance(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        case 'get_performance_profile': {
+          const args = getPerformanceProfileSchema.parse(rawArgs);
+          return await handleGetPerformanceProfile(args, manager);
+        }
+
+        // ── v0.4: code generation & live injection ────────────────────────────
+
+        case 'generate_component': {
+          const args = generateComponentSchema.parse(rawArgs);
+          return await handleGenerateComponent(args, manager);
+        }
+
+        case 'inject_code': {
+          const args = injectCodeSchema.parse(rawArgs);
+          return await handleInjectCode(args, manager);
+        }
+
+        case 'commit_component': {
+          const args = commitComponentSchema.parse(rawArgs);
+          return await handleCommitComponent(args, manager);
+        }
+
+        case 'scaffold_project': {
+          const args = scaffoldProjectSchema.parse(rawArgs);
+          return await handleScaffoldProject(args, manager);
+        }
+
+        case 'list_injections': {
+          const args   = listInjectionsSchema.parse(rawArgs);
+          const result = await handleListInjections(args, manager);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        }
+
+        case 'remove_injection': {
+          const args   = removeInjectionSchema.parse(rawArgs);
+          const result = await handleRemoveInjection(args, manager);
+          return {
+            content: [{
+              type: 'text',
+              text: result.success
+                ? `Removed injection "${result.name}"`
+                : `Failed to remove "${result.name}"`,
+            }],
+          };
         }
 
         default:

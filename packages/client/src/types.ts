@@ -271,6 +271,67 @@ export interface QueryFrustumMessage {
   payload: { cameraId?: string };
 }
 
+// ─── v0.4 injection messages ──────────────────────────────────────────────────
+
+export interface InjectCodeMessage {
+  type: 'inject_code';
+  requestId: string;
+  payload: {
+    code: string;
+    /** Identifier used to reference this injection in commit / remove */
+    name: string;
+    /** If set, replace the injection with this name instead of adding */
+    replace?: string;
+  };
+}
+
+export interface RemoveInjectionMessage {
+  type: 'remove_injection';
+  requestId: string;
+  payload: { name: string };
+}
+
+export interface GetInjectionsMessage {
+  type: 'get_injections';
+  requestId: string;
+}
+
+export interface GetAnimationsMessage {
+  type: 'get_animations';
+  requestId: string;
+  payload: { identifier?: string };
+}
+
+export interface ControlAnimationMessage {
+  type: 'control_animation';
+  requestId: string;
+  payload: {
+    target: string;
+    action: 'play' | 'pause' | 'stop' | 'seek';
+    /** Time in seconds — used with action "seek" */
+    time?: number;
+    /** Specific clip name when the object has multiple clips */
+    animationName?: string;
+  };
+}
+
+export interface GetPhysicsMessage {
+  type: 'get_physics';
+  requestId: string;
+  payload: { identifier?: string };
+}
+
+export interface GetPerformanceMessage {
+  type: 'get_performance';
+  requestId: string;
+}
+
+export interface StartProfileMessage {
+  type: 'start_profile';
+  requestId: string;
+  payload: { duration: number };
+}
+
 export type ServerToClientMessage =
   | GetSceneGraphMessage
   | GetObjectMessage
@@ -282,7 +343,15 @@ export type ServerToClientMessage =
   | RemoveObjectMessage
   | QueryBoundsMessage
   | QueryDistanceMessage
-  | QueryFrustumMessage;
+  | QueryFrustumMessage
+  | GetAnimationsMessage
+  | ControlAnimationMessage
+  | GetPhysicsMessage
+  | GetPerformanceMessage
+  | StartProfileMessage
+  | InjectCodeMessage
+  | RemoveInjectionMessage
+  | GetInjectionsMessage;
 
 // Client → Server ─────────────────────────────────────────────────────────────
 
@@ -367,6 +436,177 @@ export interface QueryFrustumResponseMessage {
   payload: FrustumResult;
 }
 
+// ─── v0.3 result shapes ───────────────────────────────────────────────────────
+
+export interface AnimationInfo {
+  name: string;
+  /** Name or UUID of the animated Three.js object */
+  target: string;
+  /** Primary animated property path, e.g. ".rotation[y]" */
+  property: string;
+  duration: number;
+  elapsed: number;
+  /** 0–1 progress through the clip */
+  progress: number;
+  loop: boolean;
+  paused: boolean;
+  type: 'mixer' | 'spring' | 'gsap' | 'custom' | 'unknown';
+}
+
+export interface AnimationControlResult {
+  success: boolean;
+  animation: string;
+  state: 'playing' | 'paused' | 'stopped';
+  currentTime: number;
+}
+
+export interface PhysicsCollider {
+  shape: string;
+  halfExtents?: [number, number, number];
+  radius?: number;
+  isSensor: boolean;
+  friction: number;
+  restitution: number;
+}
+
+export interface PhysicsBody {
+  name: string;
+  uuid: string;
+  bodyType: 'dynamic' | 'fixed' | 'kinematicPosition' | 'kinematicVelocity';
+  position: [number, number, number];
+  /** Quaternion [x, y, z, w] */
+  rotation: [number, number, number, number];
+  linearVelocity:  [number, number, number];
+  angularVelocity: [number, number, number];
+  mass: number;
+  colliders: PhysicsCollider[];
+  isSleeping: boolean;
+  isEnabled: boolean;
+}
+
+export interface PhysicsJoint {
+  type: string;
+  body1: string;
+  body2: string;
+  anchor1: [number, number, number];
+  anchor2: [number, number, number];
+}
+
+export interface PhysicsResult {
+  available: boolean;
+  /** Explanation when available is false */
+  message?: string;
+  bodies?: PhysicsBody[];
+  joints?: PhysicsJoint[];
+  gravity?: [number, number, number];
+  totalBodies?: number;
+  activeBodies?: number;
+}
+
+export interface SceneStats {
+  totalObjects:   number;
+  visibleObjects: number;
+  meshCount:  number;
+  lightCount: number;
+  groupCount: number;
+}
+
+export interface PerformanceResult {
+  fps:       number;
+  frameTime: number;
+  drawCalls: number;
+  triangles: number;
+  points:    number;
+  lines:     number;
+  geometries: number;
+  textures:   number;
+  programs:   number;
+  memory: { geometries: number; textures: number };
+  scene: SceneStats;
+}
+
+export interface HeavyObject {
+  name:      string;
+  uuid:      string;
+  triangles: number;
+  drawCalls: number;
+}
+
+export interface ProfileResult {
+  duration: number;
+  frames:   number;
+  fps:      { min: number; max: number; average: number; median: number; p99: number };
+  drawCalls: { min: number; max: number; average: number };
+  triangles: { min: number; max: number; average: number };
+  heaviestObjects: HeavyObject[];
+  recommendations: string[];
+}
+
+// ─── v0.3 response messages ───────────────────────────────────────────────────
+
+export interface AnimationsResponseMessage {
+  type: 'animations_response';
+  requestId: string;
+  payload: { animations: AnimationInfo[]; totalAnimations: number };
+}
+
+export interface AnimationControlResponseMessage {
+  type: 'animation_control_response';
+  requestId: string;
+  payload: AnimationControlResult;
+}
+
+export interface PhysicsResponseMessage {
+  type: 'physics_response';
+  requestId: string;
+  payload: PhysicsResult;
+}
+
+export interface PerformanceResponseMessage {
+  type: 'performance_response';
+  requestId: string;
+  payload: PerformanceResult;
+}
+
+export interface ProfileResponseMessage {
+  type: 'profile_response';
+  requestId: string;
+  payload: ProfileResult;
+}
+
+// ─── v0.4 injection response types ───────────────────────────────────────────
+
+export interface InjectCodeResponseMessage {
+  type: 'inject_code_response';
+  requestId: string;
+  payload: {
+    success: boolean;
+    uuid: string;
+    name: string;
+    error?: string;
+  };
+}
+
+export interface InjectionRemovedResponseMessage {
+  type: 'injection_removed_response';
+  requestId: string;
+  payload: { success: boolean; name: string };
+}
+
+export interface InjectionEntry {
+  name: string;
+  uuid: string;
+  code: string;
+  injectedAt: string;
+  hasErrors: boolean;
+}
+
+export interface InjectionsListResponseMessage {
+  type: 'injections_list_response';
+  requestId: string;
+  payload: { injections: InjectionEntry[] };
+}
+
 export type ClientToServerMessage =
   | SceneGraphResponseMessage
   | ObjectResponseMessage
@@ -377,7 +617,15 @@ export type ClientToServerMessage =
   | RemoveObjectResponseMessage
   | QueryBoundsResponseMessage
   | QueryDistanceResponseMessage
-  | QueryFrustumResponseMessage;
+  | QueryFrustumResponseMessage
+  | AnimationsResponseMessage
+  | AnimationControlResponseMessage
+  | PhysicsResponseMessage
+  | PerformanceResponseMessage
+  | ProfileResponseMessage
+  | InjectCodeResponseMessage
+  | InjectionRemovedResponseMessage
+  | InjectionsListResponseMessage;
 
 export type AnyMessage = ServerToClientMessage | ClientToServerMessage;
 

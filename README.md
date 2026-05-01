@@ -87,6 +87,28 @@ Restart your AI tool, then try natural-language prompts like the ones below.
 
 ---
 
+## Create with AI — live component injection *(v0.4)*
+
+r3f-mcp isn't just an inspector — it's a creative engine. Describe what you want and watch it appear in your browser in real time.
+
+> "Build me a particle system with 200 spheres orbiting the center"
+
+A complete React component is generated (aware of your scene's existing positions and style) and injected into the running browser — **no file write, no dev server restart, no copy-paste**. If the first attempt has a bug, Claude sees the error and self-corrects automatically.
+
+> "Make the particles glow and add a pulse animation"
+
+Claude modifies the code and re-injects, replacing the previous version.
+
+> "Save that as a component in my project"
+
+`commit_component` writes the file and returns the import line. One step from prompt to permanent code.
+
+> "Create an entire 3D portfolio site with floating project cards and a starfield background"
+
+`scaffold_project` generates a complete, runnable R3F project to disk with `package.json`, Vite config, TypeScript, and a canvas pre-wired with `MCPProvider` so the AI can continue iterating.
+
+---
+
 ## What the AI can do
 
 ### Read the scene
@@ -128,6 +150,19 @@ Restart your AI tool, then try natural-language prompts like the ones below.
 
 ## Tools
 
+### v0.4 — Code generation & live injection
+
+| Tool | Inputs | Description |
+|---|---|---|
+| `generate_component` | `description`, `name`, `position?`, `preview?` | Scene-aware component generation — fetches scene graph, returns context + instructions for Claude to generate and inject a fitting component |
+| `inject_code` | `code`, `name?`, `replace?` | Evaluate and mount TSX/JSX in the running browser immediately. Errors are returned to Claude for self-correction. |
+| `commit_component` | `name`, `directory?`, `filename?` | Save a live-preview injection to an actual `.tsx` file. Returns the import line and JSX snippet. |
+| `scaffold_project` | `description`, `directory`, `template?`, `features?` | Generate a complete, runnable R3F project to disk. |
+| `list_injections` | — | List all active live-preview components |
+| `remove_injection` | `name` | Remove a live-preview component from the scene |
+
+### All tools
+
 | Tool | Inputs | Description |
 |---|---|---|
 | `scene_graph` | — | Full scene tree — transforms, geometry, materials, lights, cameras. Result is cached for `scene_diff`. |
@@ -136,6 +171,23 @@ Restart your AI tool, then try natural-language prompts like the ones below.
 | `set_material` | `identifier`, `color?`, `opacity?`, `transparent?`, `metalness?`, `roughness?`, `wireframe?`, `emissive?`, `emissiveIntensity?` | Update material properties |
 | `set_visible` | `identifier`, `visible` | Show or hide an object (and its descendants) |
 | `screenshot` | `width?`, `height?` | Capture the current frame as a PNG; saves to `/tmp/r3f-screenshot-{ts}.png` and returns the image inline |
+| `add_object` | `name`, `type`, … | Create a mesh, group, or light in the live scene |
+| `remove_object` | `identifier` | Remove an object and all its children; disposes geometry and materials |
+| `query_bounds` | `identifier` | World-space AABB — returns `min`, `max`, `center`, `size` |
+| `query_distance` | `from`, `to` | World-space distance between two objects |
+| `query_frustum` | `camera?` | List every object currently visible in the camera's view frustum |
+| `scene_diff` | — | Compare current scene to the last snapshot — shows added, removed, modified |
+| `get_animations` | `identifier?` | List all active AnimationMixer animations |
+| `control_animation` | `target`, `action`, `time?`, `animationName?` | Play / pause / stop / seek an animation |
+| `get_physics` | `identifier?` | Read Rapier rigid body / collider / joint state |
+| `get_performance` | — | Current FPS, draw calls, triangle count, memory |
+| `get_performance_profile` | `duration?` | Profile for N seconds; returns min/max/p99 FPS, heaviest meshes, recommendations |
+| `generate_component` | `description`, `name`, `position?` | Scene-aware component generation |
+| `inject_code` | `code`, `name?`, `replace?` | Live JSX injection — appears instantly in the browser |
+| `commit_component` | `name`, `directory?` | Save injection to a `.tsx` file |
+| `scaffold_project` | `description`, `directory` | Generate a complete R3F project to disk |
+| `list_injections` | — | List active live-preview components |
+| `remove_injection` | `name` | Remove a live-preview component |
 | `add_object` | `name`, `type`, `position?`, `rotation?`, `scale?`, `parent?`, `geometry?`, `material?`, light props… | Create a mesh, group, or light in the live scene |
 | `remove_object` | `identifier` | Remove an object and all its children; disposes geometry and materials |
 | `query_bounds` | `identifier` | World-space AABB — returns `min`, `max`, `center`, `size` |

@@ -12,6 +12,14 @@ import type {
   QueryBoundsMessage,
   QueryDistanceMessage,
   QueryFrustumMessage,
+  GetAnimationsMessage,
+  ControlAnimationMessage,
+  GetPhysicsMessage,
+  GetPerformanceMessage,
+  StartProfileMessage,
+  InjectCodeMessage,
+  RemoveInjectionMessage,
+  GetInjectionsMessage,
 } from './types';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -70,11 +78,19 @@ export class SceneBridge {
   private handlerSetMaterial:    ((msg: SetMaterialMessage)    => void) | null = null;
   private handlerSetVisible:     ((msg: SetVisibleMessage)     => void) | null = null;
   private handlerTakeScreenshot: ((msg: TakeScreenshotMessage) => void) | null = null;
-  private handlerAddObject:      ((msg: AddObjectMessage)      => void) | null = null;
-  private handlerRemoveObject:   ((msg: RemoveObjectMessage)   => void) | null = null;
-  private handlerQueryBounds:    ((msg: QueryBoundsMessage)    => void) | null = null;
-  private handlerQueryDistance:  ((msg: QueryDistanceMessage)  => void) | null = null;
-  private handlerQueryFrustum:   ((msg: QueryFrustumMessage)   => void) | null = null;
+  private handlerAddObject:       ((msg: AddObjectMessage)       => void) | null = null;
+  private handlerRemoveObject:    ((msg: RemoveObjectMessage)    => void) | null = null;
+  private handlerQueryBounds:     ((msg: QueryBoundsMessage)     => void) | null = null;
+  private handlerQueryDistance:   ((msg: QueryDistanceMessage)   => void) | null = null;
+  private handlerQueryFrustum:    ((msg: QueryFrustumMessage)    => void) | null = null;
+  private handlerGetAnimations:   ((msg: GetAnimationsMessage)   => void) | null = null;
+  private handlerControlAnimation:((msg: ControlAnimationMessage)=> void) | null = null;
+  private handlerGetPhysics:      ((msg: GetPhysicsMessage)      => void) | null = null;
+  private handlerGetPerformance:  ((msg: GetPerformanceMessage)  => void) | null = null;
+  private handlerStartProfile:    ((msg: StartProfileMessage)    => void) | null = null;
+  private handlerInjectCode:      ((msg: InjectCodeMessage)      => void) | null = null;
+  private handlerRemoveInjection: ((msg: RemoveInjectionMessage) => void) | null = null;
+  private handlerGetInjections:   ((msg: GetInjectionsMessage)   => void) | null = null;
 
   private statusListeners: StatusListener[] = [];
 
@@ -130,6 +146,38 @@ export class SceneBridge {
   }
   onQueryFrustum(handler: (msg: QueryFrustumMessage) => void): this {
     this.handlerQueryFrustum = handler;
+    return this;
+  }
+  onGetAnimations(handler: (msg: GetAnimationsMessage) => void): this {
+    this.handlerGetAnimations = handler;
+    return this;
+  }
+  onControlAnimation(handler: (msg: ControlAnimationMessage) => void): this {
+    this.handlerControlAnimation = handler;
+    return this;
+  }
+  onGetPhysics(handler: (msg: GetPhysicsMessage) => void): this {
+    this.handlerGetPhysics = handler;
+    return this;
+  }
+  onGetPerformance(handler: (msg: GetPerformanceMessage) => void): this {
+    this.handlerGetPerformance = handler;
+    return this;
+  }
+  onStartProfile(handler: (msg: StartProfileMessage) => void): this {
+    this.handlerStartProfile = handler;
+    return this;
+  }
+  onInjectCode(handler: (msg: InjectCodeMessage) => void): this {
+    this.handlerInjectCode = handler;
+    return this;
+  }
+  onRemoveInjection(handler: (msg: RemoveInjectionMessage) => void): this {
+    this.handlerRemoveInjection = handler;
+    return this;
+  }
+  onGetInjections(handler: (msg: GetInjectionsMessage) => void): this {
+    this.handlerGetInjections = handler;
     return this;
   }
 
@@ -259,11 +307,19 @@ export class SceneBridge {
       case 'set_material':     this.handlerSetMaterial?.(message);     break;
       case 'set_visible':      this.handlerSetVisible?.(message);      break;
       case 'take_screenshot':  this.handlerTakeScreenshot?.(message);  break;
-      case 'add_object':       this.handlerAddObject?.(message);       break;
-      case 'remove_object':    this.handlerRemoveObject?.(message);    break;
-      case 'query_bounds':     this.handlerQueryBounds?.(message);     break;
-      case 'query_distance':   this.handlerQueryDistance?.(message);   break;
-      case 'query_frustum':    this.handlerQueryFrustum?.(message);    break;
+      case 'add_object':         this.handlerAddObject?.(message);         break;
+      case 'remove_object':      this.handlerRemoveObject?.(message);      break;
+      case 'query_bounds':       this.handlerQueryBounds?.(message);       break;
+      case 'query_distance':     this.handlerQueryDistance?.(message);     break;
+      case 'query_frustum':      this.handlerQueryFrustum?.(message);      break;
+      case 'get_animations':     this.handlerGetAnimations?.(message);     break;
+      case 'control_animation':  this.handlerControlAnimation?.(message);  break;
+      case 'get_physics':        this.handlerGetPhysics?.(message);        break;
+      case 'get_performance':    this.handlerGetPerformance?.(message);    break;
+      case 'start_profile':      this.handlerStartProfile?.(message);      break;
+      case 'inject_code':        this.handlerInjectCode?.(message);        break;
+      case 'remove_injection':   this.handlerRemoveInjection?.(message);   break;
+      case 'get_injections':     this.handlerGetInjections?.(message);     break;
       default: {
         const _exhaustive: never = message;
         console.warn('[SceneBridge] Unhandled message type:', _exhaustive);

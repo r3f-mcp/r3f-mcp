@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented here.
 
+## [0.4.0] — 2026-05-01
+
+### Live component injection — the creative engine
+
+#### Core innovation: `inject_code`
+
+`inject_code` is the breakthrough feature of this release. Claude writes a complete R3F component as a string of TSX code; the MCP server sends it to the browser over WebSocket; the browser evaluates it with [sucrase](https://github.com/alangpierce/sucrase) and `new Function`, mounts it into the running R3F scene, and the user sees the result instantly — no file write, no dev server restart, no manual copy-paste.
+
+Every injected component runs inside an `InjectionErrorBoundary`. If the component throws during render, a red wireframe box appears in its place and the error is reported back to Claude for self-correction — the user never sees a crash.
+
+#### New tools
+
+| Tool | Description |
+|---|---|
+| `generate_component` | Fetches scene context (positions, materials, lighting) and returns a structured prompt that guides Claude to generate a self-contained R3F component and inject it. Scene-aware — generated code fits the existing scene naturally. |
+| `inject_code` | Evaluate and mount arbitrary TSX/JSX in the browser immediately. Errors are returned to Claude for self-correction. Scope: React hooks, `useFrame`/`useThree`, full `THREE` namespace. |
+| `commit_component` | Write a live-preview injection to an actual `.tsx` file. Returns the import line and JSX usage snippet. |
+| `scaffold_project` | Generate a complete new R3F project to disk: `package.json`, Vite config, `tsconfig.json`, entry point, and `App.tsx` pre-wired with `MCPProvider` for immediate AI iteration. |
+| `list_injections` | List all currently active live-preview components with name, UUID, code, timestamp, and error state. |
+| `remove_injection` | Unmount and remove a live-preview component by name. |
+
+#### `r3f-mcp` (client)
+
+- **`InjectionErrorBoundary`** — React class-component error boundary that catches render errors in injected components. Falls back to a red wireframe box and reports the error to Claude.
+- **`injectionEvaluator.ts`** — `evaluateComponent(code, scope)` transforms JSX/TS with sucrase, strips import statements, and evaluates with `new Function`. `buildInjectionScope()` provides the standard scope (React hooks, useFrame/useThree, THREE).
+- `MCPProvider` now maintains `injections` state and renders a `<group name="__r3f-mcp-injections__">` alongside scene children.
+- Added `sucrase` as a runtime dependency for browser-side JSX transformation.
+- New `SceneBridge` handlers: `onInjectCode`, `onRemoveInjection`, `onGetInjections`.
+
+#### `r3f-mcp-server` (server)
+
+- `WebSocketManager` gains an in-memory injection registry (populated on successful `inject_code`). Used by `commit_component` to write code to disk without a second round-trip.
+- New `request*` methods: `requestInjectCode`, `requestRemoveInjection`, `requestListInjections`, `getInjectionCode`, `getInjectionRegistry`.
+
+---
+
 ## [0.2.0] — 2026-04-30
 
 ### New tools

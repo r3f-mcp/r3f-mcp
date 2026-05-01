@@ -11,6 +11,12 @@ import type {
   BoundsResult,
   DistanceResult,
   FrustumResult,
+  AnimationInfo,
+  AnimationControlResult,
+  PhysicsResult,
+  PerformanceResult,
+  ProfileResult,
+  InjectionEntry,
 } from './types.js';
 
 // ─── Public input types (message payloads minus the id field) ─────────────────
@@ -118,6 +124,16 @@ export class WebSocketManager {
 
   /** Snapshot stored by scene_graph and scene_diff tools for diffing. */
   private lastSnapshot: { scene: SerializedNode; timestamp: string } | null = null;
+
+  /**
+   * Code registry for injected preview components.
+   * Keyed by injection name — populated when inject_code confirms success.
+   * Used by commit_component to write code to disk.
+   */
+  private injectionRegistry = new Map<
+    string,
+    { name: string; code: string; uuid: string; injectedAt: string }
+  >();
 
   constructor(options: WebSocketManagerOptions) {
     this.port = options.port;
@@ -256,7 +272,10 @@ export class WebSocketManager {
    * Send a typed command to the browser and await the matching response.
    * Rejects after REQUEST_TIMEOUT_MS if no response arrives.
    */
-  private sendRequest(message: ServerToClientMessage): Promise<ClientToServerMessage> {
+  private sendRequest(
+    message: ServerToClientMessage,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<ClientToServerMessage> {
     return new Promise((resolve, reject) => {
       // readyState 1 = OPEN (WebSocket spec constant)
       if (!this.client || this.client.readyState !== 1) {
@@ -270,10 +289,10 @@ export class WebSocketManager {
       const timer = setTimeout(() => {
         this.pending.delete(message.requestId);
         reject(new Error(
-          `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s ` +
+          `Request timed out after ${timeoutMs / 1000}s ` +
           `(type=${message.type}, id=${message.requestId})`,
         ));
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
 
       this.pending.set(message.requestId, { resolve, reject, timer });
 
@@ -477,6 +496,160 @@ export class WebSocketManager {
       throw new Error(`Protocol error: expected query_frustum_response, got ${resp.type}`);
     }
     return resp.payload;
+  }
+
+  // ─── v0.3 ─────────────────────────────────────────────────────────────────
+
+  /** List all active animations in the scene. */
+  async requestGetAnimations(identifier?: string): Promise<{ animations: AnimationInfo[]; totalAnimations: number }> {
+    const resp = await this.sendRequest({
+      type: 'get_animations',
+      requestId: randomUUID(),
+      payload: { identifier },
+    });
+    if (resp.type !== 'animations_response') {
+      throw new Error(`Protocol error: expected animations_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** Play, pause, stop, or seek an animation. */
+  async requestControlAnimation(
+    target: string,
+    action: 'play' | 'pause' | 'stop' | 'seek',
+    time?: number,
+    animationName?: string,
+  ): Promise<AnimationControlResult> {
+    const resp = await this.sendRequest({
+      type: 'control_animation',
+      requestId: randomUUID(),
+      payload: { target, action, time, animationName },
+    });
+    if (resp.type !== 'animation_control_response') {
+      throw new Error(`Protocol error: expected animation_control_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** Read the Rapier physics world state. */
+  async requestGetPhysics(identifier?: string): Promise<PhysicsResult> {
+    const resp = await this.sendRequest({
+      type: 'get_physics',
+      requestId: randomUUID(),
+      payload: { identifier },
+    });
+    if (resp.type !== 'physics_response') {
+      throw new Error(`Protocol error: expected physics_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /** Get a single-frame performance snapshot. */
+  async requestGetPerformance(): Promise<PerformanceResult> {
+    const resp = await this.sendRequest({
+      type: 'get_performance',
+      requestId: randomUUID(),
+    });
+    if (resp.type !== 'performance_response') {
+      throw new Error(`Protocol error: expected performance_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  /**
+   * Run a profiling session for `durationSec` seconds and return aggregated stats.
+   * Uses an extended timeout (duration + 10 s) so the request never races the profile.
+   */
+  async requestGetPerformanceProfile(durationSec: number): Promise<ProfileResult> {
+    const timeoutMs = (durationSec + 10) * 1000;
+    const resp = await this.sendRequest(
+      {
+        type: 'start_profile',
+        requestId: randomUUID(),
+        payload: { duration: durationSec },
+      },
+      timeoutMs,
+    );
+    if (resp.type !== 'profile_response') {
+      throw new Error(`Protocol error: expected profile_response, got ${resp.type}`);
+    }
+    return resp.payload;
+  }
+
+  // ─── v0.4: Live injection ──────────────────────────────────────────────────
+
+  /**
+   * Inject component code into the browser for immediate live preview.
+   * On success, the code is stored in the registry for later commit.
+   */
+  async requestInjectCode(
+    code: string,
+    name: string,
+    replace?: string,
+  ): Promise<{ success: boolean; uuid: string; name: string; error?: string }> {
+    const resp = await this.sendRequest({
+      type: 'inject_code',
+      requestId: randomUUID(),
+      payload: { code, name, replace },
+    });
+    if (resp.type !== 'inject_code_response') {
+      throw new Error(`Protocol error: expected inject_code_response, got ${resp.type}`);
+    }
+    const { payload } = resp;
+    // Register the code so commit_component can write it later.
+    if (payload.success) {
+      this.injectionRegistry.set(name, {
+        name,
+        code,
+        uuid: payload.uuid,
+        injectedAt: new Date().toISOString(),
+      });
+      // When replacing, remove the old entry too.
+      if (replace && replace !== name) this.injectionRegistry.delete(replace);
+    }
+    return payload;
+  }
+
+  /** Remove a live preview injection from the browser. */
+  async requestRemoveInjection(name: string): Promise<{ success: boolean; name: string }> {
+    const resp = await this.sendRequest({
+      type: 'remove_injection',
+      requestId: randomUUID(),
+      payload: { name },
+    });
+    if (resp.type !== 'injection_removed_response') {
+      throw new Error(`Protocol error: expected injection_removed_response, got ${resp.type}`);
+    }
+    this.injectionRegistry.delete(name);
+    return resp.payload;
+  }
+
+  /** List all currently active live preview injections. */
+  async requestListInjections(): Promise<InjectionEntry[]> {
+    const resp = await this.sendRequest({
+      type: 'get_injections',
+      requestId: randomUUID(),
+    });
+    if (resp.type !== 'injections_list_response') {
+      throw new Error(`Protocol error: expected injections_list_response, got ${resp.type}`);
+    }
+    return resp.payload.injections;
+  }
+
+  /**
+   * Retrieve an injection's source code from the registry.
+   * Used by commit_component to write it to disk.
+   */
+  getInjectionCode(name: string): { code: string; uuid: string } | null {
+    const entry = this.injectionRegistry.get(name);
+    return entry ? { code: entry.code, uuid: entry.uuid } : null;
+  }
+
+  getInjectionRegistry(): ReadonlyMap<
+    string,
+    { name: string; code: string; uuid: string; injectedAt: string }
+  > {
+    return this.injectionRegistry;
   }
 }
 

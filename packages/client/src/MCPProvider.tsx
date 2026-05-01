@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { useThree } from '@react-three/fiber';
+import type { ComponentType } from 'react';
+import { useThree, useFrame } from '@react-three/fiber';
 import { Box3, Vector3, Frustum, Matrix4 } from 'three';
-import type { Object3D, Mesh } from 'three';
-import type { MCPProviderProps, SerializedNode } from './types';
+import type { Object3D, Scene, Mesh, AnimationMixer } from 'three';
+import { InjectionErrorBoundary } from './InjectionErrorBoundary';
+import { evaluateComponent, buildInjectionScope } from './injectionEvaluator';
+import type {
+  MCPProviderProps, SerializedNode,
+  AnimationInfo, SceneStats,
+  PhysicsBody, PhysicsCollider,
+} from './types';
 import { SceneBridge } from './WebSocketServer';
 import { MCPContext, updateMCPStore } from './useMCPStatus';
 import type { MCPState } from './useMCPStatus';
@@ -15,6 +22,8 @@ import {
   createObject,
   destroyObject,
 } from './SceneSerializer';
+import { getAllMixerEntries } from './animationRegistry';
+import { getPhysicsWorld } from './physicsRegistry';
 
 // ─── Filtering helpers ────────────────────────────────────────────────────────
 
@@ -65,6 +74,227 @@ function isAllowed(
   )
     return false;
   return true;
+}
+
+// ─── v0.3 Animation helpers ───────────────────────────────────────────────────
+
+/** Extract all AnimationActions from a mixer into the shared result array. */
+function extractMixerActions(
+  mixer: AnimationMixer,
+  label: string,
+  out: AnimationInfo[],
+): void {
+  // _actions is a private array on THREE.AnimationMixer
+  const actions = (mixer as unknown as { _actions?: unknown[] })._actions;
+  if (!Array.isArray(actions)) return;
+
+  for (const a of actions) {
+    const action = a as Record<string, unknown>;
+    const clip   = action['_clip'] as Record<string, unknown> | undefined;
+    if (!clip) continue;
+
+    const duration = (clip['duration'] as number) || 0;
+    const elapsed  = (action['time']   as number) || 0;
+    const tracks   = clip['tracks'] as Array<{ name: string }> | undefined;
+    const loop     = (action['loop'] as number) !== 2200; // THREE.LoopOnce = 2200
+
+    out.push({
+      name:     (clip['name'] as string) || 'unnamed',
+      target:   label,
+      property: tracks?.[0]?.name ?? 'unknown',
+      duration,
+      elapsed,
+      progress: duration > 0 ? Math.min(elapsed / duration, 1) : 0,
+      loop,
+      paused: Boolean(action['paused']),
+      type:   'mixer',
+    });
+  }
+}
+
+function collectAnimations(scene: Scene, identifier?: string): AnimationInfo[] {
+  const result: AnimationInfo[] = [];
+
+  // Priority 1: explicitly registered via useRegisterAnimation
+  for (const [uuid, { mixer, label }] of getAllMixerEntries()) {
+    if (identifier && uuid !== identifier && label !== identifier) continue;
+    extractMixerActions(mixer, label, result);
+  }
+
+  // Priority 2: scan scene objects for the userData.mixer convention
+  scene.traverse(obj => {
+    if (identifier && obj.uuid !== identifier && obj.name !== identifier) return;
+    if (getAllMixerEntries().has(obj.uuid)) return; // already counted above
+    const candidate = (obj.userData as Record<string, unknown>)['mixer'];
+    if (!candidate || typeof (candidate as Record<string, unknown>)['update'] !== 'function') return;
+    extractMixerActions(candidate as AnimationMixer, obj.name || obj.uuid, result);
+  });
+
+  return result;
+}
+
+// ─── v0.3 Physics helpers ─────────────────────────────────────────────────────
+
+function extractPhysicsState(world: unknown, identifier?: string) {
+  const w = world as Record<string, unknown>;
+  const bodies: PhysicsBody[] = [];
+
+  const rawBodies = (
+    w['bodies'] ??
+    (w['raw'] as Record<string, unknown> | undefined)?.['bodies']
+  ) as { forEach: (fn: (b: unknown) => void) => void } | undefined;
+
+  rawBodies?.forEach((rawBody: unknown) => {
+    const body = rawBody as Record<string, unknown>;
+    const ud   = (body['userData'] ?? {}) as Record<string, unknown>;
+    const name = (ud['name']  as string | undefined) ?? `body_${String(body['handle'] ?? '?')}`;
+    const uuid = (ud['uuid']  as string | undefined) ?? String(body['handle'] ?? '');
+
+    if (identifier && uuid !== identifier && name !== identifier) return;
+
+    type Vec3 = { x: number; y: number; z: number };
+    type Vec4 = Vec3 & { w: number };
+    const t  = (body['translation'] as (() => Vec3) | undefined)?.();
+    const r  = (body['rotation']    as (() => Vec4) | undefined)?.();
+    const lv = (body['linvel']      as (() => Vec3) | undefined)?.();
+    const av = (body['angvel']      as (() => Vec3) | undefined)?.();
+
+    const bodyTypeNum = (body['bodyType'] as (() => number) | undefined)?.() ?? 0;
+    const typeMap = ['dynamic', 'fixed', 'kinematicPosition', 'kinematicVelocity'] as const;
+
+    const colliders: PhysicsCollider[] = [];
+    const nc = (body['numColliders'] as (() => number) | undefined)?.() ?? 0;
+    for (let i = 0; i < nc; i++) {
+      const col = (body['collider'] as ((i: number) => Record<string, unknown>) | undefined)?.(i);
+      if (!col) continue;
+      const shape = (col['shape'] as Record<string, unknown> | undefined) ?? {};
+      const he = shape['halfExtents'] as Vec3 | undefined;
+      colliders.push({
+        shape:       String(shape['type'] ?? 'unknown'),
+        isSensor:    Boolean((col['isSensor']    as (() => boolean) | undefined)?.()),
+        friction:    (col['friction']    as (() => number) | undefined)?.() ?? 0,
+        restitution: (col['restitution'] as (() => number) | undefined)?.() ?? 0,
+        ...(he != null && { halfExtents: [he.x, he.y, he.z] as [number, number, number] }),
+        ...((shape['radius'] as number | undefined) != null && { radius: shape['radius'] as number }),
+      });
+    }
+
+    bodies.push({
+      name, uuid,
+      bodyType:        typeMap[bodyTypeNum] ?? 'dynamic',
+      position:        t  ? [t.x,  t.y,  t.z]        : [0, 0, 0],
+      rotation:        r  ? [r.x,  r.y,  r.z, r.w]   : [0, 0, 0, 1],
+      linearVelocity:  lv ? [lv.x, lv.y, lv.z]       : [0, 0, 0],
+      angularVelocity: av ? [av.x, av.y, av.z]        : [0, 0, 0],
+      mass:       (body['mass']       as (() => number)  | undefined)?.() ?? 0,
+      isSleeping: (body['isSleeping'] as (() => boolean) | undefined)?.() ?? false,
+      isEnabled:  (body['isEnabled']  as (() => boolean) | undefined)?.() ?? true,
+      colliders,
+    });
+  });
+
+  const g = w['gravity'] as { x: number; y: number; z: number } | undefined;
+  return {
+    available:    true as const,
+    bodies,
+    joints:       [] as [],
+    gravity:      (g ? [g.x, g.y, g.z] : [0, -9.81, 0]) as [number, number, number],
+    totalBodies:  bodies.length,
+    activeBodies: bodies.filter(b => !b.isSleeping).length,
+  };
+}
+
+// ─── v0.3 Performance helpers ─────────────────────────────────────────────────
+
+function getSceneStats(scene: Scene): SceneStats {
+  let totalObjects = 0, visibleObjects = 0, meshCount = 0, lightCount = 0, groupCount = 0;
+  scene.traverse(obj => {
+    totalObjects++;
+    if (obj.visible) visibleObjects++;
+    const r = obj as unknown as Record<string, unknown>;
+    if      (r['isMesh']  === true) meshCount++;
+    else if (r['isLight'] === true) lightCount++;
+    else if (obj.type === 'Group')  groupCount++;
+  });
+  return { totalObjects, visibleObjects, meshCount, lightCount, groupCount };
+}
+
+interface ProfilingSession {
+  requestId: string;
+  startTime: number;
+  durationMs: number;
+  done: boolean;
+  deltas: number[];   // frame times in seconds
+  snapshots: Array<{ drawCalls: number; triangles: number; points: number; lines: number }>;
+}
+
+function buildProfileResult(session: ProfilingSession, scene: Scene) {
+  const { deltas, snapshots, durationMs } = session;
+
+  if (deltas.length === 0) {
+    const z = { min: 0, max: 0, average: 0 };
+    return { duration: durationMs / 1000, frames: 0, fps: { min: 0, max: 0, average: 0, median: 0, p99: 0 }, drawCalls: z, triangles: z, heaviestObjects: [], recommendations: [] };
+  }
+
+  const avg = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
+  // Sort ascending so index 0 = worst (slowest) FPS, last = best
+  const fpsSorted = deltas.map(d => 1 / d).sort((a, b) => a - b);
+  const dcList    = snapshots.map(s => s.drawCalls);
+  const triList   = snapshots.map(s => s.triangles);
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+
+  // Heaviest meshes
+  const heavy: Array<{ name: string; uuid: string; triangles: number; drawCalls: number }> = [];
+  scene.traverse(obj => {
+    const pos = ((obj as unknown as Record<string, unknown>)['geometry'] as Record<string, unknown> | undefined)
+      ?.['attributes'] && ((obj as unknown as Record<string, unknown>)['geometry'] as Record<string, unknown>)
+      ['attributes'] && (((obj as unknown as Record<string, unknown>)['geometry'] as Record<string, unknown>)
+      ['attributes'] as Record<string, unknown>)['position'];
+    const cnt = pos ? (pos as Record<string, unknown>)['count'] as number | undefined : undefined;
+    if (cnt) heavy.push({ name: obj.name || obj.uuid, uuid: obj.uuid, triangles: Math.floor(cnt / 3), drawCalls: 1 });
+  });
+  heavy.sort((a, b) => b.triangles - a.triangles);
+
+  // Geometry-sharing check for instancing hint
+  const geoIds: string[] = [];
+  scene.traverse(obj => {
+    const id = ((obj as unknown as Record<string, unknown>)['geometry'] as Record<string, unknown> | undefined)?.['uuid'] as string | undefined;
+    if (id) geoIds.push(id);
+  });
+  const sharedCount = geoIds.length - new Set(geoIds).size;
+
+  const recommendations: string[] = [];
+  if (avg(dcList) > 100)   recommendations.push(`High draw calls (~${Math.round(avg(dcList))}/frame) — consider geometry merging or InstancedMesh`);
+  const bigMeshes = heavy.filter(m => m.triangles > 100_000);
+  if (bigMeshes.length)    recommendations.push(`${bigMeshes.length} mesh(es) with >100K triangles — consider LOD`);
+  if (sharedCount > 5)     recommendations.push(`${sharedCount} meshes share geometry — consider InstancedMesh`);
+
+  return {
+    duration: durationMs / 1000,
+    frames:   deltas.length,
+    fps: {
+      min:     r1(fpsSorted[0]),
+      max:     r1(fpsSorted[fpsSorted.length - 1]),
+      average: r1(avg(fpsSorted)),
+      median:  r1(fpsSorted[Math.floor(fpsSorted.length / 2)]),
+      p99:     r1(fpsSorted[Math.max(0, Math.floor(fpsSorted.length * 0.01))]),
+    },
+    drawCalls: { min: Math.min(...dcList),  max: Math.max(...dcList),  average: Math.round(avg(dcList)) },
+    triangles: { min: Math.min(...triList), max: Math.max(...triList), average: Math.round(avg(triList)) },
+    heaviestObjects: heavy.slice(0, 10),
+    recommendations,
+  };
+}
+
+// ─── v0.4 injection types ─────────────────────────────────────────────────────
+
+interface InjectedEntry {
+  name: string;
+  uuid: string;
+  code: string;
+  Component: ComponentType | null;
+  evalError: string | null;
+  injectedAt: Date;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -119,6 +349,50 @@ export function MCPProvider({
   includeRef.current           = include;
   excludeRef.current           = exclude;
   screenshotQualityRef.current = screenshotQuality;
+
+  // ── v0.3: Performance tracking refs ─────────────────────────────────────────
+  // Updated every frame via useFrame; polled on demand by get_performance.
+  const deltasRef     = useRef<number[]>([]);
+  const renderInfoRef = useRef({ drawCalls: 0, triangles: 0, points: 0, lines: 0, geometries: 0, textures: 0, programs: 0 });
+  const profilingRef  = useRef<ProfilingSession | null>(null);
+
+  // ── v0.4: Live injection state ──────────────────────────────────────────────
+  const [injections, setInjections] = useState<InjectedEntry[]>([]);
+  // Ref keeps handlers in useEffect closures current without reconnecting the bridge.
+  const injectionsRef = useRef<InjectedEntry[]>([]);
+  injectionsRef.current = injections;
+
+  useFrame((_, delta) => {
+    // Maintain a 60-frame ring buffer of delta times (seconds)
+    deltasRef.current.push(delta);
+    if (deltasRef.current.length > 60) deltasRef.current.shift();
+
+    // Snapshot render counters before Three.js auto-resets them after the frame
+    renderInfoRef.current = {
+      drawCalls:  gl.info.render.calls,
+      triangles:  gl.info.render.triangles,
+      points:     gl.info.render.points,
+      lines:      gl.info.render.lines,
+      geometries: gl.info.memory.geometries,
+      textures:   gl.info.memory.textures,
+      programs:   gl.info.programs?.length ?? 0,
+    };
+
+    // Feed the active profiling session (if any)
+    const session = profilingRef.current;
+    if (session && !session.done) {
+      session.deltas.push(delta);
+      session.snapshots.push({ ...renderInfoRef.current });
+      if (Date.now() - session.startTime >= session.durationMs) {
+        session.done = true;
+        bridgeRef.current?.send({
+          type:      'profile_response',
+          requestId: session.requestId,
+          payload:   buildProfileResult(session, scene),
+        });
+      }
+    }
+  });
 
   // ── Bridge lifecycle — only reconnects when port / scene / gl / camera changes
   useEffect(() => {
@@ -507,6 +781,195 @@ export function MCPProvider({
         });
       })
 
+      // ── v0.3: Animations ─────────────────────────────────────────────────────
+      .onGetAnimations(msg => {
+        const animations = collectAnimations(scene, msg.payload.identifier);
+        bridge.send({
+          type:      'animations_response',
+          requestId: msg.requestId,
+          payload:   { animations, totalAnimations: animations.length },
+        });
+      })
+
+      .onControlAnimation(msg => {
+        if (guardReadOnly(msg.requestId)) return;
+        const { target, action, time, animationName } = msg.payload;
+
+        // Find mixer: check registry first, then userData fallback
+        let mixer: AnimationMixer | null = null;
+        let label = target;
+        for (const [uuid, entry] of getAllMixerEntries()) {
+          if (uuid === target || entry.label === target) {
+            mixer = entry.mixer; label = entry.label; break;
+          }
+        }
+        if (!mixer) {
+          const obj = findObject(scene, target);
+          if (obj) {
+            const c = (obj.userData as Record<string, unknown>)['mixer'];
+            if (c && typeof (c as Record<string, unknown>)['update'] === 'function') {
+              mixer = c as AnimationMixer; label = obj.name || obj.uuid;
+            }
+          }
+        }
+        if (!mixer) {
+          bridge.send({ type: 'error', requestId: msg.requestId,
+            payload: { message: `No AnimationMixer found for "${target}"`, code: 'NO_MIXER' } });
+          return;
+        }
+
+        const allActions = (mixer as unknown as { _actions?: unknown[] })._actions ?? [];
+        const targetAction = (animationName
+          ? allActions.find((a: unknown) =>
+              ((a as Record<string, unknown>)['_clip'] as Record<string, unknown> | undefined)?.['name'] === animationName)
+          : allActions[0]) as Record<string, unknown> | undefined;
+
+        if (!targetAction) {
+          bridge.send({ type: 'error', requestId: msg.requestId,
+            payload: { message: `No animation found${animationName ? ` named "${animationName}"` : ''}`, code: 'NO_ACTION' } });
+          return;
+        }
+
+        type AnyAction = Record<string, unknown> & { play: () => void; stop: () => void; isRunning: () => boolean };
+        const act = targetAction as AnyAction;
+        switch (action) {
+          case 'play':  act.play(); act['paused'] = false; break;
+          case 'pause': act['paused'] = true; break;
+          case 'stop':  act.stop(); break;
+          case 'seek':
+            act['time']   = time ?? 0;
+            act['paused'] = true;
+            mixer.update(0);
+            break;
+        }
+        invalidate();
+        void label; // used for the registry lookup above
+
+        const clip    = act['_clip'] as Record<string, unknown> | undefined;
+        const running = act.isRunning?.();
+        const paused  = Boolean(act['paused']);
+        bridge.send({
+          type: 'animation_control_response', requestId: msg.requestId,
+          payload: {
+            success:     true,
+            animation:   (clip?.['name'] as string) || 'unnamed',
+            state:       paused ? 'paused' : running ? 'playing' : 'stopped',
+            currentTime: (act['time'] as number) ?? 0,
+          },
+        });
+      })
+
+      // ── v0.3: Physics ─────────────────────────────────────────────────────────
+      .onGetPhysics(msg => {
+        const world = getPhysicsWorld();
+        if (!world) {
+          bridge.send({
+            type: 'physics_response', requestId: msg.requestId,
+            payload: {
+              available: false,
+              message: 'No physics world registered. Call useRegisterPhysics(world) from useRapier() inside your <Physics> provider.',
+            },
+          });
+          return;
+        }
+        try {
+          bridge.send({
+            type: 'physics_response', requestId: msg.requestId,
+            payload: extractPhysicsState(world, msg.payload.identifier),
+          });
+        } catch (err) {
+          bridge.send({ type: 'error', requestId: msg.requestId,
+            payload: { message: `Physics read error: ${err instanceof Error ? err.message : String(err)}`, code: 'PHYSICS_ERROR' } });
+        }
+      })
+
+      // ── v0.3: Performance snapshot ────────────────────────────────────────────
+      .onGetPerformance(msg => {
+        const deltas   = deltasRef.current;
+        const avgDelta = deltas.length > 0 ? deltas.reduce((a, b) => a + b, 0) / deltas.length : 0.016;
+        const info     = renderInfoRef.current;
+        bridge.send({
+          type: 'performance_response', requestId: msg.requestId,
+          payload: {
+            fps:        Math.round((1 / avgDelta) * 10) / 10,
+            frameTime:  Math.round(avgDelta * 1000 * 100) / 100,
+            drawCalls:  info.drawCalls,
+            triangles:  info.triangles,
+            points:     info.points,
+            lines:      info.lines,
+            geometries: info.geometries,
+            textures:   info.textures,
+            programs:   info.programs,
+            memory:     { geometries: info.geometries, textures: info.textures },
+            scene:      getSceneStats(scene),
+          },
+        });
+      })
+
+      // ── v0.3: Profiling ───────────────────────────────────────────────────────
+      .onStartProfile(msg => {
+        const dur = Math.min(Math.max(msg.payload.duration, 0.5), 30);
+        profilingRef.current = {
+          requestId:  msg.requestId,
+          startTime:  Date.now(),
+          durationMs: dur * 1000,
+          done:       false,
+          deltas:     [],
+          snapshots:  [],
+        };
+        // No immediate response — useFrame accumulates data and sends when done.
+      })
+
+      // ── v0.4: Live injection ──────────────────────────────────────────────────
+      .onInjectCode(msg => {
+        const { code, name, replace } = msg.payload;
+        const uuid = crypto.randomUUID();
+        const scope = buildInjectionScope();
+        const { Component, error } = evaluateComponent(code, scope);
+
+        setInjections(prev => {
+          // Remove the target name (either the explicit replace target or same name)
+          const nameToRemove = replace ?? name;
+          const filtered = prev.filter(i => i.name !== nameToRemove);
+          return [
+            ...filtered,
+            { name, uuid, code, Component, evalError: error, injectedAt: new Date() },
+          ];
+        });
+
+        bridge.send({
+          type:      'inject_code_response',
+          requestId: msg.requestId,
+          payload:   { success: Component !== null, uuid, name, error: error ?? undefined },
+        });
+      })
+
+      .onRemoveInjection(msg => {
+        const { name } = msg.payload;
+        setInjections(prev => prev.filter(i => i.name !== name));
+        bridge.send({
+          type:      'injection_removed_response',
+          requestId: msg.requestId,
+          payload:   { success: true, name },
+        });
+      })
+
+      .onGetInjections(msg => {
+        bridge.send({
+          type:      'injections_list_response',
+          requestId: msg.requestId,
+          payload: {
+            injections: injectionsRef.current.map(i => ({
+              name:        i.name,
+              uuid:        i.uuid,
+              code:        i.code,
+              injectedAt:  i.injectedAt.toISOString(),
+              hasErrors:   i.evalError !== null,
+            })),
+          },
+        });
+      })
+
       .connect();
 
     return () => {
@@ -515,11 +978,39 @@ export function MCPProvider({
     };
   }, [port, scene, gl, camera, invalidate]);
 
-  // Wrap children in MCPContext so R3F components inside this Canvas can call
-  // useMCPStatus() and read the context directly (without the external store).
+  // Render injected preview components alongside the user's scene children.
+  // Each injection gets its own ErrorBoundary so a bad component can't crash
+  // the whole scene — it shows a red wireframe placeholder instead, and the
+  // error is reported back to Claude for self-correction.
   return (
     <MCPContext.Provider value={mcpState}>
       {children}
+      <group name="__r3f-mcp-injections__">
+        {injections.map(entry => {
+          const Comp = entry.Component;
+          if (!Comp) return null;
+          return (
+            <InjectionErrorBoundary
+              key={entry.uuid}
+              onError={(err) => {
+                setInjections(prev =>
+                  prev.map(i =>
+                    i.uuid === entry.uuid ? { ...i, evalError: err.message } : i,
+                  ),
+                );
+                // Report the render error back so Claude can fix and re-inject.
+                bridgeRef.current?.send({
+                  type:      'inject_code_response',
+                  requestId: `render-error-${entry.uuid}`,
+                  payload:   { success: false, uuid: entry.uuid, name: entry.name, error: err.message },
+                });
+              }}
+            >
+              <Comp />
+            </InjectionErrorBoundary>
+          );
+        })}
+      </group>
     </MCPContext.Provider>
   );
 }

@@ -223,6 +223,57 @@ export interface QueryFrustumMessage {
   payload: { cameraId?: string };
 }
 
+export interface InjectCodeMessage {
+  type: 'inject_code';
+  requestId: string;
+  payload: { code: string; name: string; replace?: string };
+}
+
+export interface RemoveInjectionMessage {
+  type: 'remove_injection';
+  requestId: string;
+  payload: { name: string };
+}
+
+export interface GetInjectionsMessage {
+  type: 'get_injections';
+  requestId: string;
+}
+
+export interface GetAnimationsMessage {
+  type: 'get_animations';
+  requestId: string;
+  payload: { identifier?: string };
+}
+
+export interface ControlAnimationMessage {
+  type: 'control_animation';
+  requestId: string;
+  payload: {
+    target: string;
+    action: 'play' | 'pause' | 'stop' | 'seek';
+    time?: number;
+    animationName?: string;
+  };
+}
+
+export interface GetPhysicsMessage {
+  type: 'get_physics';
+  requestId: string;
+  payload: { identifier?: string };
+}
+
+export interface GetPerformanceMessage {
+  type: 'get_performance';
+  requestId: string;
+}
+
+export interface StartProfileMessage {
+  type: 'start_profile';
+  requestId: string;
+  payload: { duration: number };
+}
+
 export type ServerToClientMessage =
   | GetSceneGraphMessage
   | GetObjectMessage
@@ -234,7 +285,15 @@ export type ServerToClientMessage =
   | RemoveObjectMessage
   | QueryBoundsMessage
   | QueryDistanceMessage
-  | QueryFrustumMessage;
+  | QueryFrustumMessage
+  | GetAnimationsMessage
+  | ControlAnimationMessage
+  | GetPhysicsMessage
+  | GetPerformanceMessage
+  | StartProfileMessage
+  | InjectCodeMessage
+  | RemoveInjectionMessage
+  | GetInjectionsMessage;
 
 // Client → Server
 
@@ -298,6 +357,156 @@ export interface QueryFrustumResponseMessage {
   payload: FrustumResult;
 }
 
+// ─── v0.3 result shapes ───────────────────────────────────────────────────────
+
+export interface AnimationInfo {
+  name: string;
+  target: string;
+  property: string;
+  duration: number;
+  elapsed: number;
+  progress: number;
+  loop: boolean;
+  paused: boolean;
+  type: 'mixer' | 'spring' | 'gsap' | 'custom' | 'unknown';
+}
+
+export interface AnimationControlResult {
+  success: boolean;
+  animation: string;
+  state: 'playing' | 'paused' | 'stopped';
+  currentTime: number;
+}
+
+export interface PhysicsCollider {
+  shape: string;
+  halfExtents?: [number, number, number];
+  radius?: number;
+  isSensor: boolean;
+  friction: number;
+  restitution: number;
+}
+
+export interface PhysicsBody {
+  name: string;
+  uuid: string;
+  bodyType: 'dynamic' | 'fixed' | 'kinematicPosition' | 'kinematicVelocity';
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  linearVelocity:  [number, number, number];
+  angularVelocity: [number, number, number];
+  mass: number;
+  colliders: PhysicsCollider[];
+  isSleeping: boolean;
+  isEnabled: boolean;
+}
+
+export interface PhysicsJoint {
+  type: string;
+  body1: string;
+  body2: string;
+  anchor1: [number, number, number];
+  anchor2: [number, number, number];
+}
+
+export interface PhysicsResult {
+  available: boolean;
+  message?: string;
+  bodies?: PhysicsBody[];
+  joints?: PhysicsJoint[];
+  gravity?: [number, number, number];
+  totalBodies?: number;
+  activeBodies?: number;
+}
+
+export interface SceneStats {
+  totalObjects:   number;
+  visibleObjects: number;
+  meshCount:  number;
+  lightCount: number;
+  groupCount: number;
+}
+
+export interface PerformanceResult {
+  fps: number; frameTime: number;
+  drawCalls: number; triangles: number; points: number; lines: number;
+  geometries: number; textures: number; programs: number;
+  memory: { geometries: number; textures: number };
+  scene: SceneStats;
+}
+
+export interface HeavyObject {
+  name: string; uuid: string; triangles: number; drawCalls: number;
+}
+
+export interface ProfileResult {
+  duration: number;
+  frames: number;
+  fps: { min: number; max: number; average: number; median: number; p99: number };
+  drawCalls: { min: number; max: number; average: number };
+  triangles: { min: number; max: number; average: number };
+  heaviestObjects: HeavyObject[];
+  recommendations: string[];
+}
+
+// ─── v0.3 response messages ───────────────────────────────────────────────────
+
+export interface AnimationsResponseMessage {
+  type: 'animations_response';
+  requestId: string;
+  payload: { animations: AnimationInfo[]; totalAnimations: number };
+}
+
+export interface AnimationControlResponseMessage {
+  type: 'animation_control_response';
+  requestId: string;
+  payload: AnimationControlResult;
+}
+
+export interface PhysicsResponseMessage {
+  type: 'physics_response';
+  requestId: string;
+  payload: PhysicsResult;
+}
+
+export interface PerformanceResponseMessage {
+  type: 'performance_response';
+  requestId: string;
+  payload: PerformanceResult;
+}
+
+export interface ProfileResponseMessage {
+  type: 'profile_response';
+  requestId: string;
+  payload: ProfileResult;
+}
+
+export interface InjectCodeResponseMessage {
+  type: 'inject_code_response';
+  requestId: string;
+  payload: { success: boolean; uuid: string; name: string; error?: string };
+}
+
+export interface InjectionRemovedResponseMessage {
+  type: 'injection_removed_response';
+  requestId: string;
+  payload: { success: boolean; name: string };
+}
+
+export interface InjectionEntry {
+  name: string;
+  uuid: string;
+  code: string;
+  injectedAt: string;
+  hasErrors: boolean;
+}
+
+export interface InjectionsListResponseMessage {
+  type: 'injections_list_response';
+  requestId: string;
+  payload: { injections: InjectionEntry[] };
+}
+
 export type ClientToServerMessage =
   | SceneGraphResponseMessage
   | ObjectResponseMessage
@@ -308,7 +517,15 @@ export type ClientToServerMessage =
   | RemoveObjectResponseMessage
   | QueryBoundsResponseMessage
   | QueryDistanceResponseMessage
-  | QueryFrustumResponseMessage;
+  | QueryFrustumResponseMessage
+  | AnimationsResponseMessage
+  | AnimationControlResponseMessage
+  | PhysicsResponseMessage
+  | PerformanceResponseMessage
+  | ProfileResponseMessage
+  | InjectCodeResponseMessage
+  | InjectionRemovedResponseMessage
+  | InjectionsListResponseMessage;
 
 // ─── Server config ───────────────────────────────────────────────────────────
 
@@ -440,6 +657,82 @@ export type QueryFrustumInput = z.infer<typeof QueryFrustumInputSchema>;
 // scene_diff
 export const SceneDiffInputSchema = z.object({});
 export type SceneDiffInput = z.infer<typeof SceneDiffInputSchema>;
+
+// get_animations
+export const GetAnimationsInputSchema = z.object({
+  identifier: z.string().optional()
+    .describe('Filter to animations on a specific object (name or UUID)'),
+});
+export type GetAnimationsInput = z.infer<typeof GetAnimationsInputSchema>;
+
+// control_animation
+export const ControlAnimationInputSchema = z.object({
+  target: z.string().describe('Name or UUID of the animated object'),
+  action: z.enum(['play', 'pause', 'stop', 'seek']),
+  time: z.number().optional().describe('Seek target in seconds (use with action "seek")'),
+  animationName: z.string().optional()
+    .describe('Clip name when the object has multiple animations'),
+});
+export type ControlAnimationInput = z.infer<typeof ControlAnimationInputSchema>;
+
+// get_physics
+export const GetPhysicsInputSchema = z.object({
+  identifier: z.string().optional()
+    .describe('Filter to physics bodies attached to a specific object (name or UUID)'),
+});
+export type GetPhysicsInput = z.infer<typeof GetPhysicsInputSchema>;
+
+// get_performance
+export const GetPerformanceInputSchema = z.object({});
+export type GetPerformanceInput = z.infer<typeof GetPerformanceInputSchema>;
+
+// get_performance_profile
+export const GetPerformanceProfileInputSchema = z.object({
+  duration: z.number().min(0.5).max(30).optional()
+    .describe('Profiling duration in seconds (default 3, max 30)'),
+});
+export type GetPerformanceProfileInput = z.infer<typeof GetPerformanceProfileInputSchema>;
+
+// ── v0.4 schemas ──────────────────────────────────────────────────────────────
+
+export const GenerateComponentInputSchema = z.object({
+  description: z.string().describe('Natural language description of the component to generate'),
+  name:        z.string().describe('PascalCase component name, e.g. "FloatingCube"'),
+  position:    Vec3.optional().describe('[x, y, z] where to place it in the scene'),
+  preview:     z.boolean().default(true).describe('Inject into the running scene immediately'),
+});
+export type GenerateComponentInput = z.infer<typeof GenerateComponentInputSchema>;
+
+export const InjectCodeInputSchema = z.object({
+  code:    z.string().describe('Valid JSX/TSX source code that returns an R3F-compatible element'),
+  name:    z.string().optional().describe('Identifier for this injection (used for remove/replace)'),
+  replace: z.string().optional().describe('Name of a previous injection to replace'),
+});
+export type InjectCodeInput = z.infer<typeof InjectCodeInputSchema>;
+
+export const CommitComponentInputSchema = z.object({
+  name:      z.string().describe('Injection name to commit'),
+  directory: z.string().optional().describe('Directory to save to (default: "./src/components")'),
+  filename:  z.string().optional().describe('Override filename (default: {Name}.tsx)'),
+});
+export type CommitComponentInput = z.infer<typeof CommitComponentInputSchema>;
+
+export const ScaffoldProjectInputSchema = z.object({
+  description: z.string().describe('What to build, e.g. "a space shooter game"'),
+  directory:   z.string().describe('Where to create the project'),
+  template:    z.enum(['game', 'showcase', 'portfolio', 'visualization', 'experience']).optional(),
+  features:    z.array(z.string()).optional()
+    .describe('Specific features, e.g. ["physics","postprocessing","sound"]'),
+});
+export type ScaffoldProjectInput = z.infer<typeof ScaffoldProjectInputSchema>;
+
+export const ListInjectionsInputSchema = z.object({});
+export type ListInjectionsInput = z.infer<typeof ListInjectionsInputSchema>;
+
+export const RemoveInjectionInputSchema = z.object({
+  name: z.string().describe('Name of the injection to remove'),
+});
+export type RemoveInjectionInput = z.infer<typeof RemoveInjectionInputSchema>;
 
 // Convenience map used by the dispatcher in index.ts
 export const ToolInputSchemas = {
