@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented here.
 
+## [0.4.2] — 2026-05-01
+
+### Context-aware scene environments for `scaffold_project`
+
+#### Problem
+
+Every scaffolded project previously received the same boilerplate scene: white-ish ground plane (`#e2e8f0`), generic ambient + directional lighting, and `[5, 5, 8]` camera — regardless of whether the project was a space simulator, an underwater world, or a product showcase. A solar system got a floor. An underwater scene got a grey ground plane. The output looked wrong.
+
+#### Fix: `sceneEnvironment.ts` — shared environment profile module
+
+A new shared module (`packages/server/src/tools/sceneEnvironment.ts`) classifies any project description into one of 8 environment profiles using keyword matching, then provides pre-built JSX fragments and metadata that both `scaffold_project` and `generate_component` use.
+
+| Profile | Triggers | Key characteristics |
+|---|---|---|
+| **space** | "space", "solar", "planet", "galaxy", "asteroid", "cosmic"… | Black background. `<Stars>`. Point-light sun. **No ground.** Low ambient (0.05). Bloom for glow. |
+| **underwater** | "underwater", "ocean", "sea", "aquatic", "coral"… | Deep teal (#0a2a3a). Heavy near-fog (1–30). Sandy sea floor. Blue directional from above. ChromaticAberration. |
+| **product** | "product", "showcase", "sneaker", "watch", "furniture"… | Dark studio (#1a1a1a). `<Environment preset="studio">`. Three-point lighting. `<ContactShadows>`. Low fov (40). |
+| **nature** | "forest", "garden", "landscape", "mountain", "terrain"… | Sky-blue background (#c9e2f0). `<Sky>`. Forest environment. Warm sun directional. Large grass floor. |
+| **interior** | "room", "apartment", "office", "gallery", "museum"… | Warm dark (#1a1510). Eye-level camera (y=1.6). Spot lights with penumbra. Apartment environment. Wood floor. |
+| **game** | "game", "shooter", "platformer", "rpg", "battle"… | Dark navy (#0a0a1a). Dramatic colored point lights. Elevated camera (y=8). Vignette + Bloom. |
+| **abstract** | "abstract", "generative", "installation", "immersive"… | Near-black (#0a0a0a). **No ground.** Colored neon point lights only. Auto-rotating orbit. Heavy post-processing. |
+| **portfolio** | "portfolio", "website", "landing page", "hero section"… | Near-black (#0f0f0f). **No ground.** City environment. Clean minimal. Zoom disabled on OrbitControls. |
+
+Four rules enforced in every profile:
+1. Background is never `#ffffff` — minimum dark neutral `#1a1a2e`
+2. Fog color always matches background exactly
+3. Space scenes never get a ground plane
+4. `ambientLight` is always supplemented with directional/point/spot lighting
+
+#### `generate_component` — style context injection
+
+`generate_component` now calls `determineEnvironment(args.description)` and injects a `═══ STYLE CONTEXT ═══` block into the generation prompt before the scene summary. This gives Claude the color palette, material suggestions, and things to avoid *before* it writes any code — so a space component automatically gets dark emissive materials instead of a grey `MeshStandardMaterial`.
+
+#### `r3f_reference` — new `scenes` topic
+
+`r3fReference` now accepts `"scenes"` as a topic. It returns the full environment profile documentation in a reference format, including the four universal rules. Use it before generating components for a specific scene type:
+
+```
+> r3f_reference({ topics: ["scenes", "lighting"] })
+```
+
+---
+
 ## [0.4.1] — 2026-05-01
 
 ### Quality enhancements & generation improvements

@@ -1,6 +1,6 @@
 {
   "name": "r3f-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Connect AI coding tools to a live React Three Fiber scene via MCP",
   "type": "module",
   "main": "dist/index.js",

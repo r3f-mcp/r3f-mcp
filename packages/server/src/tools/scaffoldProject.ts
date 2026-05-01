@@ -5,6 +5,8 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { WebSocketManager } from '../connection.js';
 import { ScaffoldProjectInputSchema } from '../types.js';
 import type { ScaffoldProjectInput } from '../types.js';
+import { determineEnvironment } from './sceneEnvironment.js';
+import type { SceneEnvironment } from './sceneEnvironment.js';
 
 export const scaffoldProjectSchema = ScaffoldProjectInputSchema;
 export type { ScaffoldProjectInput };
@@ -130,7 +132,8 @@ createRoot(document.getElementById('root')!).render(
 function appTsx(
   description: string,
   hasPhysics: boolean,
-  components: Array<{ name: string; description: string }> = [],
+  components: Array<{ name: string; description: string }>,
+  env: SceneEnvironment,
 ): string {
   const physicsImport = hasPhysics ? `import { Physics } from '@react-three/rapier';\n` : '';
   const physicsOpen   = hasPhysics ? '\n      <Physics>' : '';
@@ -142,33 +145,55 @@ function appTsx(
 
   const compUsage = components.length
     ? components.map(c => `      <${c.name} /> {/* ${c.description} */}`).join('\n')
-    : `      {/* Components will appear here — use inject_code or add to src/components/ */}`;
+    : `      {/* Add components here — use inject_code or add files to src/components/ */}`;
+
+  const dreiNames = [...new Set(env.dreiImports)].join(', ');
+
+  const fogJsx = env.fog
+    ? `\n      <fog attach="fog" args={['${env.fog.color}', ${env.fog.near}, ${env.fog.far}]} />`
+    : '';
+
+  const groundBlock     = env.groundJsx    ? '\n\n' + env.groundJsx   : '';
+  const envBlock        = env.environmentJsx
+    ? '\n\n      {/* Environment */}\n' + env.environmentJsx
+    : '';
+  const atmosphereBlock = env.atmosphereJsx
+    ? '\n\n      {/* Atmosphere */}\n' + env.atmosphereJsx
+    : '';
+  const postNote = env.postProcessingNote
+    ? `\n      {/* Post-processing: ${env.postProcessingNote} */}`
+    : '';
 
   return `import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { ${dreiNames} } from '@react-three/drei';
 import { MCPProvider } from 'r3f-mcp';
 ${physicsImport}${compImports}
 
 // ${description}
+// Scene type: ${env.label}
+// ${env.notes}
 
 function Scene() {
   return (
     <MCPProvider port={3333}>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[5, 10, 5]} intensity={1} castShadow />${physicsOpen}
-${compUsage}${physicsClose}
-      <mesh name="Ground" rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[20, 20]} />
-        <meshStandardMaterial color="#e2e8f0" />
-      </mesh>
-      <OrbitControls makeDefault />
+      {/* Lighting */}
+${env.lightingJsx}${atmosphereBlock}${envBlock}${physicsOpen}
+
+${compUsage}${physicsClose}${groundBlock}${postNote}
+
+${env.controlsJsx}
     </MCPProvider>
   );
 }
 
 export function App() {
   return (
-    <Canvas shadows camera={{ position: [5, 5, 8], fov: 50 }} gl={{ preserveDrawingBuffer: true }}>
+    <Canvas
+      shadows
+      camera={{ position: ${JSON.stringify(env.cameraPosition)}, fov: ${env.cameraFov} }}
+      gl={{ preserveDrawingBuffer: true }}
+    >
+      <color attach="background" args={['${env.background}']} />${fogJsx}
       <Scene />
     </Canvas>
   );
@@ -187,9 +212,12 @@ export async function handleScaffoldProject(
   // ── 1. Resolve absolute path, expand ~ ────────────────────────────────────
   const dir      = resolveDir(args.directory);
   const slug     = basename(dir) || 'r3f-app';
-  const features = args.features  ?? [];
+  const features   = args.features   ?? [];
   const components = args.components ?? [];
   const hasPhysics = features.includes('physics');
+
+  // Determine the appropriate scene environment from the project description
+  const env = determineEnvironment(args.description);
 
   // ── 2. Permission check on parent ─────────────────────────────────────────
   const parentDir = dirname(dir);
@@ -217,7 +245,7 @@ export async function handleScaffoldProject(
     { relPath: 'tsconfig.json',  content: TSCONFIG },
     { relPath: 'index.html',     content: INDEX_HTML },
     { relPath: 'src/main.tsx',   content: MAIN_TSX },
-    { relPath: 'src/App.tsx',    content: appTsx(args.description, hasPhysics, components) },
+    { relPath: 'src/App.tsx',    content: appTsx(args.description, hasPhysics, components, env) },
     ...components.map(c => ({
       relPath: `src/components/${c.name}.tsx`,
       content: c.code,
@@ -266,6 +294,7 @@ export async function handleScaffoldProject(
     `✅ Project successfully created on the user's local machine.`,
     ``,
     `Directory: ${dir}`,
+    `Scene type: ${env.label} (background: ${env.background})`,
     `Files created: ${written.length}`,
     ``,
     fileList,

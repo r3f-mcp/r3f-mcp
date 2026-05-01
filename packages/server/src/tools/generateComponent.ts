@@ -3,6 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { WebSocketManager } from '../connection.js';
 import { GenerateComponentInputSchema } from '../types.js';
 import type { GenerateComponentInput, SerializedNode } from '../types.js';
+import { determineEnvironment } from './sceneEnvironment.js';
 
 export const generateComponentSchema = GenerateComponentInputSchema;
 export type { GenerateComponentInput };
@@ -72,6 +73,7 @@ export async function handleGenerateComponent(
   const scene   = await connection.requestSceneGraph();
   const summary = summarizeScene(scene);
   const pos     = args.position ? JSON.stringify(args.position) : '[0, 0, 0]';
+  const env     = determineEnvironment(args.description);
 
   const instructions = `
 Generate a React Three Fiber component and inject it into the running scene.
@@ -95,6 +97,15 @@ Generate a React Three Fiber component and inject it into the running scene.
 Name:        ${args.name}
 Position:    ${pos}
 Description: ${args.description}
+
+═══ STYLE CONTEXT ═══════════════════════════════════════════════════════════════
+Scene type detected: ${env.label}
+${env.notes}
+
+Palette: ${env.colorPalette}
+Materials: ${env.suggestedMaterials}
+Avoid: ${env.avoidList}
+═════════════════════════════════════════════════════════════════════════════════
 
 ═══ CURRENT SCENE ═══════════════════════════════════════════════════════════════
 ${summary}

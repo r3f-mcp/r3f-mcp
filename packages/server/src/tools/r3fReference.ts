@@ -6,7 +6,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 const VALID_TOPICS = [
   'materials', 'lighting', 'animation', 'post-processing', 'camera',
   'physics', 'particles', 'text', 'shaders', 'performance',
-  'composition', 'interactivity', 'audio', 'environment',
+  'composition', 'interactivity', 'audio', 'environment', 'scenes',
 ] as const;
 
 export const r3fReferenceSchema = z.object({
@@ -24,7 +24,8 @@ export const r3fReferenceTool: Tool = {
     'Get best practices, recipes, and pro tips for creating high-quality React Three Fiber scenes. ' +
     'Call this BEFORE generating any component to ensure professional-quality output. ' +
     'Topics: materials, lighting, animation, post-processing, camera, physics, particles, ' +
-    'text, shaders, performance, composition, interactivity, audio, environment. ' +
+    'text, shaders, performance, composition, interactivity, audio, environment, scenes. ' +
+    'Use "scenes" to get environment profiles for space, underwater, product, nature, interior, game, abstract, portfolio. ' +
     'This is embedded expert knowledge — no internet fetch required.',
   inputSchema: {
     type: 'object',
@@ -638,6 +639,121 @@ Tips:
   - Match fog color to background — mismatch breaks immersion.
   - For outdoor scenes: Sky + directionalLight with shadows.
   - For indoor scenes: Environment preset="apartment" + spot lights.
+`.trim(),
+
+  scenes: `
+SCENE ENVIRONMENT PROFILES FOR R3F:
+
+Choose the environment profile that matches the project type. The scaffold_project tool
+applies these automatically — use this reference when generating standalone components.
+
+────────────────────────────────────────────────────
+SPACE (solar system, planets, asteroids, spacecraft)
+────────────────────────────────────────────────────
+Background:  #000000  |  Fog: near=50 far=200
+Ground:      NONE — never put a ground plane in space
+Lighting:    ambientLight intensity 0.05; pointLight for the star (no decay)
+Atmosphere:  <Stars radius={300} depth={60} count={10000} factor={7} saturation={0} />
+Camera:      [0, 15, 30]  fov 50
+Post:        Bloom (luminanceThreshold 0.1, high intensity) for glowing bodies
+Colors:      Black, deep blues, bright whites, warm oranges/yellows for stars
+Avoid:       White background, ground plane, warm ambient, any fog matching ground
+
+──────────────────────────────────────────────────────
+UNDERWATER (ocean, sea, aquatic, coral, marine life)
+──────────────────────────────────────────────────────
+Background:  #0a2a3a  |  Fog: near=1 far=30  (heavy — this sells the depth)
+Ground:      Sandy sea floor (#c4a882)
+Lighting:    Directional from above with blue-green tint (#6af0ff), low ambient
+Camera:      [0, 2, 8]  fov 60
+Post:        ChromaticAberration + Bloom for caustic glow
+Colors:      Deep teal (#0a2a3a), sandy beige (#c4a882), cyan (#6af0ff)
+Avoid:       Warm colors, bright ambient, clear visibility beyond fog range
+
+─────────────────────────────────────────────────────────────────
+PRODUCT SHOWCASE (sneakers, watches, furniture, 3D configurators)
+─────────────────────────────────────────────────────────────────
+Background:  #1a1a1a  |  No fog
+Ground:      ContactShadows instead of mesh floor
+Lighting:    Three-point studio (key warm, fill cool, rim back)
+Environment: <Environment preset="studio" /> for reflections
+Controls:    OrbitControls with maxPolarAngle=PI/2, constrained zoom
+Camera:      [0, 1, 5]  fov 40  (low fov = less distortion for products)
+Post:        ToneMapping ACES_FILMIC + SMAA only — no Bloom (keeps edges crisp)
+Colors:      Neutral dark background, product colors per brief
+Avoid:       White/grey floor (use ContactShadows), bloom, fog
+
+────────────────────────────────────────────────────────
+NATURE (forest, garden, landscape, terrain, trees, grass)
+────────────────────────────────────────────────────────
+Background:  #c9e2f0 (sky blue)  |  Fog: near=10 far=100, color matches sky
+Ground:      Large grass plane (#4a7a3a) with receiveShadow
+Lighting:    Warm directional sun ([100, 50, 80]) + soft ambient
+Atmosphere:  <Sky sunPosition={[100, 50, 80]} turbidity={0.1} />
+Environment: <Environment preset="forest" background={false} />
+Camera:      [0, 3, 15]  fov 60
+Post:        Minimal — ToneMapping ACES_FILMIC only
+Colors:      Sky blue, grass green (#4a7a3a), warm sun (#fff0c8), earth brown
+Avoid:       Dark backgrounds, neon colors, metallic surfaces
+
+────────────────────────────────────────────────────────────────
+INTERIOR (room, apartment, office, museum, gallery, architecture)
+────────────────────────────────────────────────────────────────
+Background:  #1a1510  |  No fog
+Ground:      Wooden/concrete floor (#8a7060) with receiveShadow
+Lighting:    Warm spot lights (color #ffd080) + very low ambient
+Environment: <Environment preset="apartment" background={false} />
+Camera:      [0, 1.6, 5]  fov 60  (eye level — 1.6m = human height)
+Controls:    OrbitControls target=[0, 1, 0], maxPolarAngle=PI/2
+Post:        AccumulativeShadows for soft realistic baked shadows
+Colors:      Warm whites (#fff8f0), wood tones, warm light (#ffd080)
+Avoid:       Sky, outdoor elements, low ambient making everything flat
+
+──────────────────────────────────────────────────────────────────────
+GAME (shooter, platformer, racing, RPG, battle, arcade, dungeon)
+──────────────────────────────────────────────────────────────────────
+Background:  #0a0a1a  |  Fog: near=20 far=80
+Ground:      Dark game floor (#0f0f22) with receiveShadow
+Lighting:    Strong directional (shadows) + colored point lights for drama
+Camera:      [0, 8, 12]  fov 65  (elevated for overview)
+Post:        Bloom (intensity 0.5) + Vignette
+Colors:      Dark navy, electric blue, danger red, glowing cyan
+Avoid:       Bright ambient (kills drama), pastel colors, white background
+
+─────────────────────────────────────────────────────────────────────────────
+ABSTRACT / GENERATIVE / ART (installation, immersive, dream, psychedelic)
+─────────────────────────────────────────────────────────────────────────────
+Background:  #0a0a0a  |  Fog: near=5 far=50
+Ground:      NONE — things float in void
+Lighting:    Colored point lights only (magenta, cyan, green) — no ambient
+Controls:    OrbitControls with autoRotate for gallery feel
+Camera:      [0, 0, 10]  fov 60
+Post:        HEAVY — Bloom (high intensity) + ChromaticAberration + Vignette
+Colors:      Pure black base, saturated neons: magenta (#ff4488), cyan (#44ffaa)
+Avoid:       Ground plane, ambient light, naturalistic colors
+
+──────────────────────────────────────────────────────────────────────────────────
+PORTFOLIO / WEBSITE (personal site, landing page, hero section, CV)
+──────────────────────────────────────────────────────────────────────────────────
+Background:  #0f0f0f  |  Fog: near=10 far=50
+Ground:      NONE — objects float
+Lighting:    Clean professional; supplement with Environment preset="city"
+Environment: <Environment preset="city" background={false} />
+Camera:      [0, 0, 10]  fov 50
+Controls:    OrbitControls enableZoom=false (don't let users break the layout)
+Post:        Subtle — ToneMapping ACES_FILMIC + SMAA only
+Colors:      Near-black base, brand accent colors, clean silvers
+Avoid:       Autorotate by default, garish effects, ground plane, fog too heavy
+
+────────────────────────────────
+THE RULES (apply to all scenes)
+────────────────────────────────
+1. Background is NEVER #ffffff. Minimum dark neutral: #1a1a2e.
+2. Fog color ALWAYS matches background color exactly.
+3. Space scenes NEVER get a ground plane.
+4. ambientLight alone makes scenes flat — always pair with directional/spot.
+5. emissive materials need Bloom to actually glow — without it they just look bright.
+6. Camera fov: 30–40 for products/architectural, 50–60 for general, 65–90 for games/VR.
 `.trim(),
 
 };

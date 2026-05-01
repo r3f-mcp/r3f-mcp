@@ -169,7 +169,9 @@ Claude modifies the code and re-injects, replacing the previous version.
 > "Before generating this component, check r3f_reference for materials and lighting tips"
 ```
 
-Covered topics: `materials` · `lighting` · `animation` · `post-processing` · `camera` · `physics` · `particles` · `text` · `shaders` · `performance` · `composition` · `interactivity` · `audio` · `environment`
+Covered topics: `materials` · `lighting` · `animation` · `post-processing` · `camera` · `physics` · `particles` · `text` · `shaders` · `performance` · `composition` · `interactivity` · `audio` · `environment` · `scenes`
+
+The `scenes` topic documents all 8 environment profiles (space, underwater, product, nature, interior, game, abstract, portfolio) with their exact camera positions, lighting setups, background colors, and four universal rules — the same profiles `scaffold_project` uses automatically.
 
 Each topic contains pro tips, code recipes, and common pitfalls — the difference between a flat grey sphere and a properly lit, physically-based, animated scene.
 
@@ -206,7 +208,7 @@ Warnings are returned to Claude so it can self-correct before the component is c
 | `get_physics` | v0.3 | `identifier?` | Read Rapier rigid body / collider / joint state (requires `useRegisterPhysics`) |
 | `get_performance` | v0.3 | — | Current FPS, draw calls, triangle count, memory |
 | `get_performance_profile` | v0.3 | `duration?` | Profile for N seconds; returns min/max/p99 FPS, heaviest meshes, recommendations |
-| `r3f_reference` | v0.4 | `topics` | Embedded expert knowledge base — materials, lighting, animation, shaders, and more |
+| `r3f_reference` | v0.4 | `topics` | Embedded expert knowledge base — materials, lighting, animation, shaders, and more. Add `"scenes"` for environment profiles (space, underwater, product, nature, interior, game, abstract, portfolio). |
 | `generate_component` | v0.4 | `description`, `name`, `position?`, `preview?` | Scene-aware component generation with quality guidelines baked in |
 | `inject_code` | v0.4 | `code`, `name?`, `replace?` | Live JSX injection with quality validation. Errors returned for self-correction. |
 | `commit_component` | v0.4 | `name`, `directory?`, `filename?` | Save a live-preview injection to a `.tsx` file on disk |
@@ -221,6 +223,23 @@ Warnings are returned to Claude so it can self-correct before the component is c
 ### `add_object` material types
 
 `standard` (default) · `basic` · `phong` · `lambert` · `physical`
+
+### `scaffold_project` — context-aware scene environments
+
+`scaffold_project` automatically detects the scene type from your description and generates a matching environment — no generic grey floor + white background:
+
+| Description contains… | Scene type | What you get |
+|---|---|---|
+| "space", "solar system", "planet", "galaxy" | **Space** | Black background, `<Stars>`, point-light sun, **no ground**, Bloom suggested |
+| "underwater", "ocean", "coral", "aquatic" | **Underwater** | Deep teal, heavy near-fog, sandy sea floor, blue directional light |
+| "product", "showcase", "sneaker", "watch" | **Product** | Dark studio, three-point lighting, `<Environment preset="studio">`, `<ContactShadows>` |
+| "forest", "garden", "landscape", "terrain" | **Nature** | Sky-blue, `<Sky>`, forest environment, warm sun, large grass plane |
+| "room", "apartment", "gallery", "museum" | **Interior** | Eye-level camera (y=1.6), warm spot lights, apartment environment |
+| "game", "shooter", "platformer", "rpg" | **Game** | Dark navy, colored point lights, elevated camera, Vignette + Bloom |
+| "abstract", "installation", "generative" | **Abstract** | Near-black, no ground, neon lights, auto-rotating orbit, heavy post-processing |
+| "portfolio", "landing page", "hero" | **Portfolio** | Near-black, no ground, city environment, zoom-locked orbit |
+
+Four rules always enforced: background is never `#ffffff`; fog color always matches background; space scenes never get a ground plane; `ambientLight` is always paired with directional/spot lighting.
 
 ### `scaffold_project` — single-call workflow
 
